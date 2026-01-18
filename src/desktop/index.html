@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DaviProjects - Gestión de Proyectos</title>
+    <meta name="theme-color" content="#082359">
+    <link rel="manifest" href="../../manifest.json">
+    <link rel="apple-touch-icon" href="../../img/logo.webp">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="../shared/supabase-config.js"></script>
+    <style>
+        #app { display: none; } /* Ocultar hasta validar sesión */
+        .loading-screen {
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #082359;
+            color: white;
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+    <script>
+        function showCustomAlert(title, message, type = 'warning') {
+            const overlay = document.createElement('div');
+            overlay.className = 'custom-alert-overlay';
+            const icon = type === 'success' ? 'fa-check-circle' : (type === 'error' ? 'fa-times-circle' : 'fa-exclamation-triangle');
+            overlay.innerHTML = `
+                <div class="custom-alert-card">
+                    <div class="alert-icon ${type}"><i class="fas ${icon}"></i></div>
+                    <div class="alert-title">${title}</div>
+                    <div class="alert-msg">${message}</div>
+                    <div class="alert-actions">
+                        <button class="alert-btn">Entendido</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            return new Promise((resolve) => {
+                overlay.querySelector('.alert-btn').onclick = () => {
+                    overlay.remove();
+                    resolve();
+                };
+            });
+        }
+
+        async function checkAccess() {
+            try {
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+                    || window.matchMedia("(max-width: 768px)").matches;
+                
+                if (isMobile) {
+                    window.location.replace("../mobile/index.html");
+                    return;
+                }
+
+                // Esperar a que AuthService esté disponible
+                let retry = 0;
+                while (typeof AuthService === 'undefined' && retry < 10) {
+                    await new Promise(r => setTimeout(r, 100));
+                    retry++;
+                }
+
+                if (typeof AuthService === 'undefined') throw new Error("Timeout loading AuthService");
+
+                const session = await AuthService.getSession();
+                if (!session) {
+                    window.location.replace("auth/login.html");
+                    return;
+                }
+
+                // VALIDACIÓN ESTRICTA: Solo usuarios en daviplata_usuarios
+                try {
+                    const profile = await AuthService.getUserProfile(session.user.id);
+                    if (!profile) throw new Error("Acceso denegado: No registrado");
+                    
+                    document.getElementById('app').style.display = 'block';
+                    document.getElementById('loading').style.display = 'none';
+                    window.session = session;
+                } catch (profError) {
+                    console.error(profError);
+                    await showCustomAlert("Acceso Restringido", "No tienes permisos para acceder al sistema. Por favor, contacta con el administrador.");
+                    await supabaseClient.auth.signOut();
+                    window.location.replace("auth/login.html");
+                }
+            } catch (err) {
+                console.error("Error de acceso:", err);
+                window.location.replace("auth/login.html");
+            }
+        }
+        checkAccess();
+    </script>
+</head>
+<body>
+    <div id="loading" class="loading-screen">
+        <div>Cargando...</div>
+    </div>
+    <div id="app">
+        <div id="main-container">
+            <aside class="sidebar closed" id="sidebar">
+                <div class="sidebar-top">
+                    <div class="logo">
+                        <img src="../../img/logo.webp" alt="Logo" style="height: 32px; width: auto; margin-right: 10px;">
+                        <span>DaviProjects</span>
+                        <button id="btn-close-sidebar" class="btn-icon-only"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="sidebar-header">
+                        <h2>Menú Principal</h2>
+                    </div>
+                    <ul class="sidebar-nav">
+                        <li onclick="showGallery()" id="nav-dashboard" class="active">
+                            <i class="fas fa-chart-line"></i> Dashboard
+                        </li>
+                        <li onclick="showFullProjectsView()" id="nav-projects">
+                            <i class="fas fa-folder-open"></i> Proyectos
+                        </li>
+                    </ul>
+                    <div class="sidebar-header" style="margin-top: 1.5rem;">
+                        <h2>Proyectos</h2>
+                        <button id="btn-new-project" title="Nuevo Proyecto"><i class="fas fa-plus"></i></button>
+                    </div>
+                    <ul id="project-list">
+                        <!-- Projects will be loaded here -->
+                    </ul>
+                </div>
+            </aside>
+
+            <main class="content">
+                <header class="content-header">
+                    <div class="header-left">
+                        <button id="btn-open-sidebar" class="btn-hamburger"><i class="fas fa-bars"></i></button>
+                        <h1 id="current-project-name">DaviProjects</h1>
+                        <div class="view-switch hidden" id="view-controls" style="margin-left: 2rem;">
+                            <button id="btn-view-kanban" class="active">
+                                <i class="fas fa-columns"></i>
+                                <span>Kanban</span>
+                            </button>
+                            <button id="btn-view-history">
+                                <i class="fas fa-history"></i>
+                                <span>Registro Profesional</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <div class="user-profile">
+                            <div class="user-info-text">
+                                <span id="user-display-name">Usuario</span>
+                            </div>
+                            <div class="avatar">U</div>
+                            <button id="btn-home" class="btn-home-circle" title="Ir al Dashboard">
+                                <i class="fas fa-home"></i>
+                            </button>
+                            <button id="btn-logout" class="btn-logout-circle" title="Cerrar Sesión">
+                                <i class="fas fa-power-off"></i>
+                            </button>
+                        </div>
+                    </div>
+                </header>
+
+                <section id="gallery-view" class="view">
+                    <div class="dashboard-header">
+                        <div class="brand-badge">
+                            <img src="../../img/logo.webp" alt="Logo">
+                            <span>DaviProjects</span>
+                        </div>
+                        <div class="welcome-text">
+                            <h2 id="dashboard-welcome-msg">¡Hola de nuevo!</h2>
+                            <p>Aquí tienes un resumen de tus proyectos y tareas.</p>
+                        </div>
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon"><i class="fas fa-folder"></i></div>
+                            <div class="metric-info">
+                                <span class="metric-label">Proyectos</span>
+                                <span class="metric-value" id="count-projects">0</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon alert"><i class="fas fa-tasks"></i></div>
+                            <div class="metric-info">
+                                <span class="metric-label">Tareas Pendientes</span>
+                                <span class="metric-value" id="count-tasks-pending">0</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon success"><i class="fas fa-check-circle"></i></div>
+                            <div class="metric-info">
+                                <span class="metric-label">Completadas</span>
+                                <span class="metric-value" id="count-tasks-done">0</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon warning"><i class="fas fa-eye"></i></div>
+                            <div class="metric-info">
+                                <span class="metric-label">En Revisión</span>
+                                <span class="metric-value" id="count-tasks-review">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>Próximos a Vencer</h3>
+                        <button onclick="showFullProjectsView()" class="btn-view-all" style="background: none; border: 1px solid var(--primary); color: var(--primary); padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer; font-weight: 600; font-size: 0.8rem; transition: all 0.2s;">
+                            Ver todos los proyectos <i class="fas fa-arrow-right" style="margin-left: 5px;"></i>
+                        </button>
+                    </div>
+                    
+                    <div id="project-gallery" class="project-gallery">
+                        <!-- Project cards will be rendered here -->
+                    </div>
+                </section>
+
+                <section id="projects-view" class="view hidden">
+                    <div id="full-project-gallery" class="project-gallery">
+                        <!-- All project cards will be rendered here -->
+                    </div>
+                </section>
+
+                <section id="kanban-view" class="view hidden" style="position: relative;">
+                    <div id="pane-loading-kanban" class="pane-loading-overlay hidden">
+                        <i class="fas fa-circle-notch fa-spin"></i>
+                        <span>Sincronizando tareas...</span>
+                    </div>
+                    <div class="board">
+                        <div class="column" data-status="TODO">
+                            <h3><i class="fas fa-list-ul"></i> Por Hacer</h3>
+                            <div class="task-list"></div>
+                            <button class="btn-add-task"><i class="fas fa-plus"></i> Añadir Tarea</button>
+                        </div>
+                        <div class="column" data-status="DOING">
+                            <h3><i class="fas fa-spinner"></i> En Progreso</h3>
+                            <div class="task-list"></div>
+                            <button class="btn-add-task"><i class="fas fa-plus"></i> Añadir Tarea</button>
+                        </div>
+                        <div class="column" data-status="DONE">
+                            <h3><i class="fas fa-check-double"></i> Finalizado</h3>
+                            <div class="task-list"></div>
+                            <button class="btn-add-task"><i class="fas fa-plus"></i> Añadir Tarea</button>
+                        </div>
+                        <div class="column" data-status="REVIEW">
+                            <h3><i class="fas fa-eye"></i> En Revisión</h3>
+                            <div class="task-list"></div>
+                        </div>
+                        <div class="column" data-status="REJECTED" style="opacity: 0.8;">
+                            <h3><i class="fas fa-ban"></i> Rechazado</h3>
+                            <div class="task-list"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="history-view" class="view hidden" style="position: relative;">
+                    <div id="pane-loading-history" class="pane-loading-overlay hidden">
+                        <i class="fas fa-circle-notch fa-spin"></i>
+                        <span>Cargando historial...</span>
+                    </div>
+                    <div class="history-container">
+                        <div class="history-header">
+                            <h3><i class="fas fa-history"></i> Registro de Actividad</h3>
+                            <button id="btn-refresh-history" class="btn-icon-only" style="color: var(--primary);" title="Actualizar"><i class="fas fa-sync-alt"></i></button>
+                        </div>
+                        <div id="history-list" class="history-list">
+                            <!-- Logs will be rendered here -->
+                            <div class="history-empty">
+                                <i class="fas fa-clipboard-list"></i>
+                                <p>No hay registros para este proyecto todavía.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-project" class="modal hidden">
+        <div class="modal-content" style="max-width: 550px;">
+            <button class="modal-close-corner close-modal" title="Cerrar"><i class="fas fa-times"></i></button>
+            <div class="modal-priority-banner" style="background: var(--primary);"></div>
+            
+            <div style="padding: 2.5rem;">
+                <h3 style="font-size: 1.5rem; color: #0f172a; margin-bottom: 0.5rem;">Crear Nuevo Proyecto</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem;">Define el espacio de trabajo para tus próximas metas.</p>
+                
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Nombre del Proyecto</label>
+                    <input type="text" id="new-project-name" placeholder="Ej. Rediseño Web 2026" style="width: 100%; padding: 0.85rem 1.15rem; border-radius: 0.85rem; border: 2px solid #f1f5f9; font-size: 1rem; outline: none; transition: all 0.2s;">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Descripción (Opcional)</label>
+                    <textarea id="new-project-desc" placeholder="¿De qué trata este proyecto?" rows="3" style="width: 100%; padding: 0.85rem 1.15rem; border-radius: 0.85rem; border: 2px solid #f1f5f9; font-size: 1rem; outline: none; transition: all 0.2s; resize: none; font-family: inherit;"></textarea>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 2rem;">
+                    <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Fecha de Vencimiento</label>
+                    <input type="datetime-local" id="new-project-due" style="width: 100%; padding: 0.85rem 1.15rem; border-radius: 0.85rem; border: 2px solid #f1f5f9; font-size: 1rem; outline: none; transition: all 0.2s;">
+                </div>
+
+                <div class="modal-actions" style="justify-content: flex-end; gap: 1rem;">
+                    <button class="close-modal" style="background: #f1f5f9; color: #64748b; border: none; padding: 0.85rem 1.5rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s;">Cancelar</button>
+                    <button id="save-project" style="background: var(--primary); color: white; border: none; padding: 0.85rem 2rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);">Crear Proyecto</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-task" class="modal hidden">
+        <div class="modal-content">
+            <!-- Botón cerrar en la esquina superior -->
+            <button class="modal-close-corner close-modal" title="Cerrar"><i class="fas fa-times"></i></button>
+
+            <!-- Banner de prioridad dinámico -->
+            <div id="modal-priority-banner" class="modal-priority-banner"></div>
+
+            <div class="modal-body">
+                <!-- Columna Izquierda: Datos de la Tarea -->
+                <div class="task-modal-main">
+                    <div class="modal-header-with-edit">
+                        <div class="modal-title-group">
+                            <h3 id="modal-task-title-display">Nueva Tarea</h3>
+                            <p id="modal-task-subtitle">Configura los detalles de tu tarea.</p>
+                        </div>
+                        <div id="btn-edit-task" class="btn-edit-mode" title="Editar Tarea">
+                            <i class="fas fa-pencil-alt"></i>
+                        </div>
+                    </div>
+
+                    <!-- Formulario (Modo Edición / Creación) -->
+                    <div id="task-form-container">
+                        <input type="text" id="task-title" placeholder="¿Qué hay que hacer?">
+                        <textarea id="task-desc" placeholder="Añade una descripción detallada..." rows="3"></textarea>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
+                            <div>
+                                <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">VENCIMIENTO</label>
+                                <input type="datetime-local" id="task-due" style="margin-top: 0.25rem;">
+                            </div>
+                            <div>
+                                <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">PRIORIDAD</label>
+                                <div class="priority-slider-container">
+                                    <input type="range" id="task-priority" class="priority-slider" min="1" max="10" value="1">
+                                    <div id="priority-indicator" class="priority-visual-indicator" style="background: #f8fafc; border: 1px solid #e2e8f0;">
+                                        <div class="priority-icon-wrapper" id="priority-icon-bg" style="background: #64748b; color: white;">
+                                            <i id="priority-icon" class="fas fa-leaf"></i>
+                                        </div>
+                                        <div style="display: flex; flex-direction: column;">
+                                            <span id="priority-text" style="font-weight: 700; font-size: 0.85rem; color: #334155;">P1 - Relajado</span>
+                                            <span id="priority-desc" style="font-size: 0.7rem; color: #64748b;">No hay prisa, sin presión.</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Campo Motivo (visible solo si aplica) -->
+                    <div id="motivo-field-container" class="hidden">
+                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">MOTIVO DE ESTADO</label>
+                        <textarea id="task-motivo" placeholder="Explica el motivo del cambio de estado..." rows="2" style="margin-top: 0.5rem;"></textarea>
+                    </div>
+
+                    <!-- Vista Informativa (Modo Lectura) -->
+                    <div id="task-info-container" class="hidden">
+                        <div style="background: #f8fafc; padding: 1.5rem; border-radius: 1rem; border: 1px solid #e2e8f0;">
+                            <p id="info-task-desc" style="white-space: pre-wrap; color: #334155; line-height: 1.6;"></p>
+                            <div id="info-motivo-box" class="hidden" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed #cbd5e1;">
+                                <span style="display: block; font-size: 0.7rem; color: #f59e0b; font-weight: 700; text-transform: uppercase;">Motivo:</span>
+                                <p id="info-task-motivo" style="color: #64748b; font-style: italic; font-size: 0.9rem; margin-top: 0.25rem;"></p>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 2rem; margin-top: 1rem;">
+                            <div>
+                                <span style="display: block; font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Estado</span>
+                                <span id="info-task-status" style="font-weight: 600; font-size: 0.9rem;">PENDIENTE</span>
+                            </div>
+                            <div>
+                                <span style="display: block; font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Vencimiento</span>
+                                <span id="info-task-due" style="font-weight: 600; font-size: 0.9rem;">Sin fecha</span>
+                            </div>
+                        </div>
+
+                        <!-- Prioridad en su propia fila más detallada -->
+                        <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 2px solid #f8fafc;">
+                            <span style="display: block; font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; margin-bottom: 0.75rem;">Nivel de Prioridad</span>
+                            <div id="info-task-priority-pill" style="display: inline-flex; align-items: center; gap: 1rem; background: #f8fafc; padding: 0.75rem 1.25rem; border-radius: 1.25rem; border: 1px solid #e2e8f0; transition: all 0.3s ease; min-width: 200px;">
+                                <div id="info-priority-circle" style="width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                                    <i id="info-task-priority-icon" class="fas fa-leaf" style="font-size: 1.2rem; color: #64748b;"></i>
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+                                    <span id="info-task-priority" style="font-weight: 900; font-size: 1.1rem; color: #334155; line-height: 1;">Prioridad 1</span>
+                                    <span id="info-task-priority-label" style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8;">Relajado</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-actions" style="margin-top: 2rem;">
+                        <button id="save-task">Guardar Cambios</button>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: Extensiones Mejoradas -->
+                <div id="task-extensions-area" class="task-modal-extensions hidden">
+                    <div class="extensions-tabs-nav">
+                        <button class="tab-link active" data-tab="sec-comments"><i class="fas fa-comments"></i> <span>Chat</span></button>
+                        <button class="tab-link" data-tab="sec-checklist"><i class="fas fa-check-square"></i> <span>Check</span></button>
+                        <button class="tab-link" data-tab="sec-numbered"><i class="fas fa-list-ol"></i> <span>Pasos</span></button>
+                    </div>
+
+                    <div class="tabs-content">
+                        <!-- Comentarios (Default) -->
+                        <div id="sec-comments" class="tab-pane active">
+                            <div id="pane-loading-comments" class="pane-loading-overlay hidden">
+                                <i class="fas fa-spinner"></i>
+                                <span>SINCRONIZANDO CHAT...</span>
+                            </div>
+
+                            <div id="task-discussion-area" class="discussion-area"></div>
+                            
+                            <!-- Nuevo Contenedor de Input con Previsualización Integrada -->
+                            <div class="comment-input-wrapper" id="comment-input-area">
+                                <div id="comment-uploading-overlay" class="input-uploading-overlay hidden">
+                                    <i class="fas fa-cloud-upload-alt"></i>
+                                    <span>SUBIENDO...</span>
+                                </div>
+                                <div id="comment-attachment-preview" class="hidden">
+                                    <div class="preview-content">
+                                        <div id="preview-thumbnail" class="preview-thumbnail hidden"></div>
+                                        <div id="preview-icon" class="preview-icon">
+                                            <i class="fas fa-file"></i>
+                                        </div>
+                                        <div class="preview-info">
+                                            <span id="preview-filename">nombre_del_archivo.pdf</span>
+                                            <span id="preview-size">0 KB</span>
+                                        </div>
+                                        <button id="btn-remove-attachment" title="Quitar adjunto">
+                                            <i class="fas fa-times-circle"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="extension-input-group">
+                                    <input type="text" id="new-comment-text" placeholder="Escribir comentario...">
+                                    <button class="btn-icon-secondary" id="btn-trigger-file" title="Adjuntar archivo"><i class="fas fa-paperclip"></i></button>
+                                    <input type="file" id="comment-file-input" class="hidden" accept="image/*,audio/*,application/pdf">
+                                    <button class="btn-add-element" id="btn-save-comment"><i class="fas fa-paper-plane"></i></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Checklist -->
+                        <div id="sec-checklist" class="tab-pane">
+                            <div id="pane-loading-check" class="pane-loading-overlay hidden">
+                                <i class="fas fa-spinner"></i>
+                                <span>CARGANDO LISTA...</span>
+                            </div>
+                            <div id="task-checklist-container" class="extension-list"></div>
+                            <div class="extension-input-group" style="position: relative;">
+                                <div id="check-uploading-overlay" class="input-uploading-overlay hidden">
+                                    <i class="fas fa-sync-alt"></i>
+                                </div>
+                                <input type="text" id="new-checklist-item" placeholder="Añadir item...">
+                                <button class="btn-add-element" id="btn-add-checklist"><i class="fas fa-plus"></i></button>
+                            </div>
+                        </div>
+
+                        <!-- Numerados -->
+                        <div id="sec-numbered" class="tab-pane">
+                            <div id="pane-loading-steps" class="pane-loading-overlay hidden">
+                                <i class="fas fa-spinner"></i>
+                                <span>CARGANDO PASOS...</span>
+                            </div>
+                            <div id="task-numbered-container" class="extension-list"></div>
+                            <div class="extension-input-group" style="position: relative;">
+                                <div id="steps-uploading-overlay" class="input-uploading-overlay hidden">
+                                    <i class="fas fa-sync-alt"></i>
+                                </div>
+                                <input type="text" id="new-numbered-item" placeholder="Siguiente paso...">
+                                <button class="btn-add-element" id="btn-add-numbered"><i class="fas fa-plus"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- Cierre modal-body -->
+        </div>
+    </div>
+
+    <div id="modal-motivo" class="modal hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3>Indique el motivo</h3>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Por favor, explique brevemente por qué cambia el estado de esta tarea.</p>
+            
+            <div class="form-group">
+                <textarea id="custom-motivo-input" placeholder="Escriba aquí el motivo..." style="width: 100%; border-radius: 0.75rem; border: 2px solid #e2e8f0; padding: 1rem; font-family: inherit; font-size: 0.95rem; resize: none; height: 120px; outline: none; transition: border-color 0.2s;"></textarea>
+            </div>
+            <div class="modal-actions" style="margin-top: 1rem; justify-content: flex-end;">
+                <button id="cancel-motivo" style="background: #f1f5f9; color: #64748b; padding: 0.5rem 1.5rem; border-radius: 0.75rem; border: none; cursor: pointer; font-weight: 600;">Cancelar</button>
+                <button id="confirm-motivo" style="background: #f59e0b; color: white; padding: 0.5rem 1.5rem; border-radius: 0.75rem; border: none; cursor: pointer; font-weight: 600;">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para zoom de imagen -->
+    <div id="modal-image-zoom" class="modal hidden" style="background: rgba(0,0,0,0.9);">
+        <button class="modal-close-corner close-zoom" style="top: 20px; right: 20px;"><i class="fas fa-times"></i></button>
+        <div class="zoom-container">
+            <img id="zoomed-image" src="" alt="Zoom">
+            <div class="zoom-controls">
+                <button id="btn-zoom-out"><i class="fas fa-search-minus"></i></button>
+                <button id="btn-zoom-reset">100%</button>
+                <button id="btn-zoom-in"><i class="fas fa-search-plus"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../shared/storage.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

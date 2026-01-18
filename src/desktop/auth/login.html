@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acceso - DaviProjects</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --primary: #05A64B;
+            --primary-hover: #0B8C50;
+            --bg: #F2F2F2;
+        }
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background: #082359;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        .login-card {
+            background: white;
+            padding: 3rem;
+            border-radius: 1.5rem;
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .logo-header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        .logo-icon {
+            width: 72px;
+            height: 72px;
+            margin: 0 auto 1rem;
+        }
+        .logo-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        h1 { color: #082359; font-size: 1.5rem; margin-bottom: 0.5rem; }
+        p { color: #64748b; font-size: 0.95rem; }
+        .form { display: flex; flex-direction: column; gap: 1.25rem; }
+        .input-group { display: flex; flex-direction: column; gap: 0.5rem; }
+        label { font-size: 0.85rem; font-weight: 600; color: #475569; }
+        input {
+            padding: 0.85rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+        }
+        input:focus { outline: 2px solid #05A64B33; border-color: var(--primary); }
+        button {
+            background: var(--primary);
+            color: white;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            border: none;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        .error { color: #ef4444; font-size: 0.85rem; text-align: center; margin-top: 1rem; min-height: 1.2rem; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="logo-header">
+            <div class="logo-icon">
+                <img src="../../../img/logo.webp" alt="DaviProjects Logo">
+            </div>
+            <h1>DaviProjects</h1>
+            <p>Ingresa tus datos para gestionar tus proyectos</p>
+        </div>
+        
+        <div class="form">
+            <div class="input-group">
+                <label>Correo Electrónico</label>
+                <input type="email" id="email" placeholder="nombre@ejemplo.com">
+            </div>
+            <div class="input-group">
+                <label>Contraseña</label>
+                <input type="password" id="password" placeholder="••••••••">
+            </div>
+            <button id="btn-login">Iniciar Sesión</button>
+            <div id="error-msg" class="error"></div>
+        </div>
+    </div>
+
+    <script src="../../shared/supabase-config.js"></script>
+    <script>
+        document.getElementById('btn-login').onclick = async () => {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorMsg = document.getElementById('error-msg');
+            const btn = document.getElementById('btn-login');
+
+            if (!email || !password) {
+                errorMsg.textContent = "Por favor completa todos los campos";
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.textContent = "Verificando...";
+                errorMsg.textContent = "";
+
+                await AuthService.login(email, password);
+                window.location.href = "../index.html";
+            } catch (error) {
+                errorMsg.textContent = "Correo o contraseña incorrectos";
+                console.error(error);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Iniciar Sesión";
+            }
+        }
+    </script>
+</body>
+</html>

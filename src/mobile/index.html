@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DaviProjects Mobile</title>
+    <meta name="theme-color" content="#082359">
+    <link rel="manifest" href="../../manifest.json">
+    <link rel="apple-touch-icon" href="../../img/logo.webp">
+    
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="../shared/supabase-config.js"></script>
+    <style>
+        #mobile-app { display: none; }
+        .loading-screen {
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #082359;
+            color: white;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Modal de Alerta Móvil */
+        .mobile-alert-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: flex-end; /* Mobile style: bottom sheet or centered */
+            justify-content: center;
+            z-index: 10000;
+        }
+        .mobile-alert-card {
+            background: #071A40; /* DaviProjects Dark Accent */
+            color: white;
+            padding: 2rem;
+            border-top-left-radius: 1.5rem;
+            border-top-right-radius: 1.5rem;
+            width: 100%;
+            text-align: center;
+            animation: slideUp 0.3s ease-out;
+            border-top: 3px solid #05A64B;
+        }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .mob-alert-icon { font-size: 2.5rem; margin-bottom: 1rem; }
+        .mob-alert-title { font-weight: 700; font-size: 1.2rem; margin-bottom: 0.5rem; }
+        .mob-alert-msg { color: #94a3b8; margin-bottom: 2rem; font-size: 0.95rem; }
+        .mob-alert-btn { background: #05A64B; color: white; border: none; padding: 1rem; border-radius: 0.75rem; font-weight: 600; width: 100%; }
+    </style>
+    <script>
+        function showMobileAlert(title, message) {
+            const overlay = document.createElement('div');
+            overlay.className = 'mobile-alert-overlay';
+            overlay.innerHTML = `
+        <div class="mobile-alert-card">
+            <div class="mob-alert-icon"><i class="fas fa-ban"></i></div>
+            <div class="mob-alert-title">${title}</div>
+            <div class="mob-alert-msg">${message}</div>
+            <button class="mob-alert-btn">Regresar al Inicio</button>
+        </div>
+            `;
+            document.body.appendChild(overlay);
+            return new Promise((resolve) => {
+                overlay.querySelector('button').onclick = () => {
+                    overlay.remove();
+                    resolve();
+                };
+            });
+        }
+
+        async function checkAccess() {
+            try {
+                const isDesktop = !(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) 
+                    && window.matchMedia("(min-width: 769px)").matches;
+                
+                if (isDesktop) {
+                    window.location.replace("../desktop/index.html");
+                    return;
+                }
+
+                // Esperar a que AuthService esté disponible
+                let retry = 0;
+                while (typeof AuthService === 'undefined' && retry < 10) {
+                    await new Promise(r => setTimeout(r, 100));
+                    retry++;
+                }
+
+                const session = await AuthService.getSession();
+                if (!session) {
+                    window.location.replace("auth/login.html");
+                    return;
+                }
+
+                // VALIDACIÓN ESTRICTA: Solo usuarios en daviplata_usuarios
+                try {
+                    const profile = await AuthService.getUserProfile(session.user.id);
+                    if (!profile) throw new Error("Acceso denegado: No registrado");
+                    
+                    document.getElementById('mobile-app').style.display = 'block';
+                    document.getElementById('loading').style.display = 'none';
+                    window.session = session;
+                } catch (profError) {
+                    console.error(profError);
+                    await showMobileAlert("Acceso Denegado", "Lo sentimos, no hemos podido validar tu registro en el sistema. Contacta con soporte.");
+                    await supabaseClient.auth.signOut();
+                    window.location.replace("auth/login.html");
+                }
+            } catch (err) {
+                console.error("Error de acceso:", err);
+                window.location.replace("auth/login.html");
+            }
+        }
+        checkAccess();
+    </script>
+</head>
+<body>
+    <div id="loading" class="loading-screen">
+        <div>Cargando...</div>
+    </div>
+    <div id="mobile-app">
+        <header class="mobile-header">
+            <div class="logo-container">
+                <img src="../../img/logo.webp" alt="Logo" style="height: 24px; width: auto; margin-right: 8px;">
+                <span>DaviProjects</span>
+            </div>
+            <div class="header-actions">
+                <button id="mobile-btn-logout" class="btn-icon-head"><i class="fas fa-power-off"></i></button>
+                <div class="user-avatar-small">LP</div>
+            </div>
+        </header>
+        
+        <main id="mobile-content">
+            <!-- Vista de Inicio / Galería -->
+            <section id="mobile-gallery-view" class="view">
+                <div class="welcome-banner">
+                    <h2>¡Hola de nuevo!</h2>
+                    <p id="mobile-user-welcome">Gestiona tus proyectos hoy</p>
+                </div>
+
+                <div class="metrics-summary">
+                    <div class="mini-metric">
+                        <span class="m-val" id="m-count-projects">0</span>
+                        <span class="m-lab">Proyectos</span>
+                    </div>
+                    <div class="mini-metric">
+                        <span class="m-val" id="m-count-pending">0</span>
+                        <span class="m-lab">Pendientes</span>
+                    </div>
+                    <div class="mini-metric">
+                        <span class="m-val" id="m-count-done">0</span>
+                        <span class="m-lab">Listas</span>
+                    </div>
+                </div>
+                
+                <div class="section-title">
+                    <h3>Proyectos Recientes</h3>
+                    <button class="btn-text" id="btn-see-all-projects">Ver todos</button>
+                </div>
+                
+                <div id="mobile-project-gallery" class="mobile-project-gallery">
+                    <!-- Cards de proyectos elegantes -->
+                </div>
+            </section>
+
+            <!-- Vista de Todos los Proyectos -->
+            <section id="mobile-all-projects-view" class="view hidden">
+                <div class="view-header-fixed">
+                    <h3>Todos los Proyectos</h3>
+                    <button class="btn-icon" id="btn-new-project-mobile"><i class="fas fa-plus"></i></button>
+                </div>
+                <div class="search-bar-container">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-projects-mobile" placeholder="Buscar proyecto...">
+                </div>
+                <div id="mobile-full-projects-list" class="mobile-project-gallery">
+                    <!-- Lista completa -->
+                </div>
+            </section>
+
+            <!-- Vista de Tareas -->
+            <section id="mobile-tasks-view" class="view hidden">
+                <div class="tasks-header">
+                    <div class="tasks-top-bar">
+                        <button id="btn-back-to-gallery" class="btn-icon">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <h3 id="mobile-project-name">Selecciona un proyecto</h3>
+                        <button id="btn-project-settings" class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
+                    </div>
+                    <div class="status-scroll-container">
+                        <div class="status-filter" id="status-filter">
+                            <button class="filter-pill active" data-status="TODO">Pendiente</button>
+                            <button class="filter-pill" data-status="DOING">En curso</button>
+                            <button class="filter-pill" data-status="DONE">Listo</button>
+                            <button class="filter-pill" data-status="REVIEW">Revisión</button>
+                            <button class="filter-pill" data-status="REJECTED">Rechazado</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="mobile-task-list" class="task-cards-container">
+                    <!-- Tareas se cargarán aquí -->
+                </div>
+            </section>
+
+            <!-- Vista de Historial -->
+            <section id="mobile-history-view" class="view hidden">
+                <div class="view-header-fixed">
+                    <h3>Historial Profesional</h3>
+                </div>
+                <div id="mobile-history-list" class="history-list-mobile">
+                    <!-- Logs aquí -->
+                </div>
+            </section>
+        </main>
+
+        <nav class="bottom-nav">
+            <button class="nav-item active" id="nav-btn-home" data-view="mobile-gallery-view">
+                <i class="fas fa-home"></i>
+                <span>Inicio</span>
+            </button>
+            <button class="nav-item" id="nav-btn-projects" data-view="mobile-all-projects-view">
+                <i class="fas fa-folder"></i>
+                <span>Proyectos</span>
+            </button>
+            <button class="nav-item-add" id="btn-add-main-mobile">
+                <i class="fas fa-plus"></i>
+            </button>
+            <button class="nav-item" id="nav-btn-history" data-view="mobile-history-view">
+                <i class="fas fa-history"></i>
+                <span>Historial</span>
+            </button>
+            <button class="nav-item" id="nav-btn-stats">
+                <i class="fas fa-chart-pie"></i>
+                <span>Métricas</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Bottom Sheet para Nueva Tarea/Proyecto -->
+    <div id="mobile-modal-actions" class="mobile-bottom-sheet hidden">
+        <div class="sheet-content">
+            <div class="sheet-handle"></div>
+            <h3>¿Qué deseas crear?</h3>
+            <div class="action-grid">
+                <button class="action-card" id="btn-create-task-sheet">
+                    <div class="act-icon blue"><i class="fas fa-tasks"></i></div>
+                    <span>Nueva Tarea</span>
+                </button>
+                <button class="action-card" id="btn-create-project-sheet">
+                    <div class="act-icon green"><i class="fas fa-folder-plus"></i></div>
+                    <span>Nuevo Proyecto</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Formulario Proyecto -->
+    <div id="mobile-modal-project" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <h3>Nuevo Proyecto</h3>
+                <button onclick="closeMobileSheet('mobile-modal-project')" class="btn-icon circle"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sheet-body">
+                <div class="input-group">
+                    <label>Nombre del Proyecto</label>
+                    <input type="text" id="mobile-project-name-input" placeholder="Ej: Rediseño Web 2026">
+                </div>
+                <div class="input-group">
+                    <label>Descripción (Opcional)</label>
+                    <textarea id="mobile-project-desc-input" placeholder="¿De qué trata este proyecto?" rows="3"></textarea>
+                </div>
+                <div class="input-group">
+                    <label>Fecha de Vencimiento</label>
+                    <input type="date" id="mobile-project-due-input">
+                </div>
+            </div>
+            <div class="sheet-footer">
+                <button class="btn-confirm-full" id="save-project-mobile">Crear Proyecto</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Formulario Tarea -->
+    <div id="mobile-modal-task" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <h3>Nueva Tarea</h3>
+                <button onclick="closeMobileSheet('mobile-modal-task')" class="btn-icon circle"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sheet-body">
+                <div class="input-group">
+                    <label>Título</label>
+                    <input type="text" id="mobile-task-title" placeholder="¿Qué hay que hacer?">
+                </div>
+                <div class="input-group">
+                    <label>Descripción</label>
+                    <textarea id="mobile-task-desc" placeholder="Añade detalles..." rows="4"></textarea>
+                </div>
+                
+                <div class="input-group">
+                    <label>Prioridad</label>
+                    <div class="priority-slider-container-mobile">
+                        <input type="range" id="mobile-task-priority" min="1" max="10" value="1" class="mobile-priority-slider">
+                        <div id="mobile-priority-indicator" class="priority-indicator-mobile">
+                            <div class="p-icon-box" id="mobile-p-icon-bg">
+                                <i id="mobile-p-icon" class="fas fa-leaf"></i>
+                            </div>
+                            <div class="p-info">
+                                <span id="mobile-p-text">P1 - Relajado</span>
+                                <p id="mobile-p-desc">No hay prisa, sin presión.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Fecha de Vencimiento</label>
+                    <input type="date" id="mobile-task-due">
+                </div>
+            </div>
+            <div class="sheet-footer">
+                <button class="btn-confirm-full" id="save-task-mobile">Guardar Tarea</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Detalle de Tarea -->
+    <div id="mobile-task-detail" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <button onclick="closeMobileSheet('mobile-task-detail')" class="btn-icon circle"><i class="fas fa-arrow-left"></i></button>
+                <h3 id="detail-task-title">Detalle de Tarea</h3>
+                <div style="display: flex; gap: 8px;">
+                    <button id="btn-edit-task-mobile" class="btn-icon circle" style="color:var(--primary);"><i class="fas fa-pencil-alt"></i></button>
+                    <button id="btn-delete-task-mobile" class="btn-icon circle" style="color:var(--red);"><i class="fas fa-trash-alt"></i></button>
+                </div>
+            </div>
+            <div class="sheet-body">
+                <!-- SECCIÓN FIJA: METADATOS -->
+                <div class="task-fixed-meta">
+                    <div class="input-group">
+                        <label>Estado de la tarea</label>
+                        <div class="status-selector-mobile">
+                            <button class="status-opt" data-status="TODO" onclick="updateTaskStatusMobile('TODO')">Pendiente</button>
+                            <button class="status-opt" data-status="DOING" onclick="updateTaskStatusMobile('DOING')">En curso</button>
+                            <button class="status-opt" data-status="DONE" onclick="updateTaskStatusMobile('DONE')">Listo</button>
+                            <button class="status-opt" data-status="REVIEW" onclick="updateTaskStatusMobile('REVIEW')">Revisión</button>
+                            <button class="status-opt" data-status="REJECTED" onclick="updateTaskStatusMobile('REJECTED')">Rechazado</button>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                        <div class="input-group" style="flex: 1;">
+                            <label>Prioridad</label>
+                            <div id="detail-task-priority-box" style="display: flex; align-items: center; gap: 8px; padding: 0.75rem; background: #f8fafc; border-radius: 12px; border: 1px solid var(--border);">
+                                <i id="detail-task-priority-icon" class="fas fa-leaf" style="color: var(--primary);"></i>
+                                <span id="detail-task-priority-text" style="font-weight: 700; font-size: 0.9rem;">P1 - Relajado</span>
+                            </div>
+                        </div>
+                        <div class="input-group" style="flex: 1;">
+                            <label>Vencimiento</label>
+                            <div style="display: flex; align-items: center; gap: 8px; padding: 0.75rem; background: #f8fafc; border-radius: 12px; border: 1px solid var(--border);">
+                                <i class="far fa-calendar-alt" style="color: var(--blue);"></i>
+                                <span id="detail-task-due-text" style="font-weight: 700; font-size: 0.9rem;">Sin fecha</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>Descripción</label>
+                        <p id="detail-task-desc" class="task-description-text"></p>
+                    </div>
+                </div>
+                
+                <!-- SECCIÓN SCROLLABLE: ELEMENTOS DINÁMICOS -->
+                <div class="task-scrollable-content">
+                    <div class="tabs-detail">
+                        <button class="tab-btn active" data-tab="tab-comments">Chat</button>
+                        <button class="tab-btn" data-tab="tab-check">Checklist</button>
+                        <button class="tab-btn" data-tab="tab-ordered">Lista</button>
+                    </div>
+
+                    <!-- TAB: CHAT (COMMENTS) - PRIMERO -->
+                    <div id="tab-comments" class="tab-content">
+                        <div id="mobile-comments-list" class="comments-container-mobile"></div>
+                        
+                        <!-- Area de Adjuntos -->
+                        <div id="mobile-attachment-preview" class="hidden">
+                            <div class="preview-item">
+                                <div id="mobile-preview-thumb-container" class="hidden">
+                                    <img id="mobile-preview-img" src="" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover; margin-right: 10px;">
+                                </div>
+                                <div id="mobile-preview-icon" class="preview-icon-box">
+                                    <i class="fas fa-file"></i>
+                                </div>
+                                <span id="mobile-file-name" style="flex: 1; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">archivo.jpg</span>
+                                <button onclick="clearMobileAttachment()"><i class="fas fa-times"></i></button>
+                            </div>
+                        </div>
+
+                        <div class="comment-input-area">
+                            <input type="file" id="mobile-file-input" hidden onchange="handleMobileFileSelect(this)">
+                            <button class="btn-attach" onclick="document.getElementById('mobile-file-input').click()">
+                                <i class="fas fa-paperclip"></i>
+                            </button>
+                            <button class="btn-attach" onclick="openMobileCamera()">
+                                <i class="fas fa-camera"></i>
+                            </button>
+                            <textarea id="new-comment-mobile" placeholder="Escribe un mensaje..."></textarea>
+                            <button id="btn-send-comment-mobile" class="send-circle"><i class="fas fa-paper-plane"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- TAB: CHECKLIST -->
+                    <div id="tab-check" class="tab-content hidden">
+                        <div id="mobile-checklist-items"></div>
+                        <div class="add-item-row">
+                            <input type="text" id="new-check-mobile" placeholder="Ej: Revisar entregables...">
+                            <button id="btn-add-check-mobile"><i class="fas fa-plus"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- TAB: LISTA (NUMBERED) -->
+                    <div id="tab-ordered" class="tab-content hidden">
+                        <div id="mobile-ordered-items"></div>
+                        <div class="add-item-row">
+                            <input type="text" id="new-ordered-mobile" placeholder="Ej: Ítem de la lista...">
+                            <button id="btn-add-ordered-mobile"><i class="fas fa-plus"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Editar Tarea -->
+    <div id="mobile-modal-edit-task" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <h3>Editar Tarea</h3>
+                <button onclick="closeMobileSheet('mobile-modal-edit-task')" class="btn-icon circle"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sheet-body">
+                <div class="input-group">
+                    <label>Título</label>
+                    <input type="text" id="mobile-edit-task-title" placeholder="¿Qué hay que hacer?">
+                </div>
+                <div class="input-group">
+                    <label>Descripción</label>
+                    <textarea id="mobile-edit-task-desc" placeholder="Añade detalles..." rows="4"></textarea>
+                </div>
+                
+                <div class="input-group">
+                    <label>Prioridad</label>
+                    <div class="priority-slider-container-mobile">
+                        <input type="range" id="mobile-edit-task-priority" min="1" max="10" value="1" class="mobile-priority-slider">
+                        <div id="mobile-edit-priority-indicator" class="priority-indicator-mobile">
+                            <div class="p-icon-box" id="mobile-edit-p-icon-bg">
+                                <i id="mobile-edit-p-icon" class="fas fa-leaf"></i>
+                            </div>
+                            <div class="p-info">
+                                <span id="mobile-edit-p-text">P1 - Relajado</span>
+                                <p id="mobile-edit-p-desc">No hay prisa, sin presión.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Fecha de Vencimiento</label>
+                    <input type="date" id="mobile-edit-task-due">
+                </div>
+            </div>
+            <div class="sheet-footer">
+                <button class="btn-confirm-full" id="btn-save-edit-task-mobile">Actualizar Tarea</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALES DE GESTIÓN DE COMENTARIOS -->
+    <!-- Action Sheet principal -->
+    <div id="comment-actions-sheet" class="mobile-bottom-sheet hidden" style="background: rgba(0,0,0,0.5); z-index: 3000;">
+        <div class="sheet-content" style="height: auto; min-height: 200px; padding-bottom: 2rem;">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <h3>Opciones del mensaje</h3>
+                <button class="btn-icon circle" onclick="closeMobileSheet('comment-actions-sheet')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sheet-body" style="gap: 12px;">
+                <button class="btn-action-row" onclick="openCommentEdit()">
+                    <i class="fas fa-edit" style="color: var(--blue);"></i>
+                    <span>Editar mensaje</span>
+                </button>
+                <button class="btn-action-row" onclick="openCommentDeleteConfirm()">
+                    <i class="fas fa-trash-alt" style="color: var(--red);"></i>
+                    <span>Eliminar mensaje</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación de Borrado -->
+    <div id="comment-delete-confirm" class="mobile-bottom-sheet hidden" style="background: rgba(0,0,0,0.6); z-index: 3100;">
+        <div class="sheet-content" style="height: auto; padding: 2rem 1.5rem; text-align: center; border-radius: 2rem 2rem 0 0;">
+            <div class="sheet-handle"></div>
+            <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: var(--red); margin-bottom: 1rem;"></i>
+            <h3 style="margin-bottom: 0.5rem;">¿Eliminar mensaje?</h3>
+            <p style="color: var(--text-muted); margin-bottom: 2rem;">Esta acción no se puede deshacer y el mensaje desaparecerá para todos.</p>
+            <div style="display: flex; gap: 12px;">
+                <button class="btn-confirm-full" style="background: #f1f5f9; color: var(--text-main); flex: 1;" onclick="closeMobileSheet('comment-delete-confirm')">Cancelar</button>
+                <button class="btn-confirm-full" style="background: var(--red); flex: 1;" onclick="confirmDeleteComment()">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Editar mensaje -->
+    <div id="comment-edit-modal" class="mobile-bottom-sheet hidden" style="background: rgba(0,0,0,0.6); z-index: 3100;">
+        <div class="sheet-content" style="height: 60vh;">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <h3>Editar mensaje</h3>
+                <button class="btn-icon circle" onclick="closeMobileSheet('comment-edit-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sheet-body">
+                <div class="input-group">
+                    <label>Contenido del mensaje</label>
+                    <textarea id="edit-comment-textarea" style="height: 15vh;"></textarea>
+                </div>
+            </div>
+            <div class="sheet-footer">
+                <button class="btn-confirm-full" onclick="saveEditedComment()">Guardar cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../shared/storage.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
