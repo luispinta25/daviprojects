@@ -5,17 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DaviProjects - Gestión de Proyectos</title>
     <meta name="theme-color" content="#082359">
-    <link rel="manifest" href="../../manifest.json">
-    <link rel="apple-touch-icon" href="../../img/logo.webp">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DaviProjects">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/img/logo.webp">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/src/desktop/style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="../shared/supabase-config.js"></script>
+    <script src="/src/shared/supabase-config.js"></script>
     <style>
         #app { display: none; } /* Ocultar hasta validar sesión */
         .loading-screen {
@@ -29,6 +33,15 @@
         }
     </style>
     <script>
+        // Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('SW registrado (Desktop):', reg.scope))
+                    .catch(err => console.error('Error SW (Desktop):', err));
+            });
+        }
+
         function showCustomAlert(title, message, type = 'warning') {
             const overlay = document.createElement('div');
             overlay.className = 'custom-alert-overlay';
@@ -433,6 +446,18 @@
                                     <i class="fas fa-cloud-upload-alt"></i>
                                     <span>SUBIENDO...</span>
                                 </div>
+
+                                <!-- Preview de Respuesta (WhatsApp Style) -->
+                                <div id="reply-preview" class="reply-preview-container hidden">
+                                    <div class="reply-preview-content">
+                                        <span id="reply-preview-author" class="reply-author">Autor</span>
+                                        <span id="reply-preview-text" class="reply-text">Mensaje original...</span>
+                                    </div>
+                                    <button onclick="cancelReply()" class="btn-close-reply">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+
                                 <div id="comment-attachment-preview" class="hidden">
                                     <div class="preview-content">
                                         <div id="preview-thumbnail" class="preview-thumbnail hidden"></div>
@@ -496,16 +521,21 @@
     </div>
 
     <div id="modal-motivo" class="modal hidden">
-        <div class="modal-content" style="max-width: 500px;">
-            <h3>Indique el motivo</h3>
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Por favor, explique brevemente por qué cambia el estado de esta tarea.</p>
-            
-            <div class="form-group">
-                <textarea id="custom-motivo-input" placeholder="Escriba aquí el motivo..." style="width: 100%; border-radius: 0.75rem; border: 2px solid #e2e8f0; padding: 1rem; font-family: inherit; font-size: 0.95rem; resize: none; height: 120px; outline: none; transition: border-color 0.2s;"></textarea>
+        <div class="modal-content modal-mini">
+            <div class="modal-header">
+                <h3 id="motivo-title">Indique el motivo</h3>
+                <p>Por favor, explique brevemente por qué cambia el estado de esta tarea.</p>
             </div>
-            <div class="modal-actions" style="margin-top: 1rem; justify-content: flex-end;">
-                <button id="cancel-motivo" style="background: #f1f5f9; color: #64748b; padding: 0.5rem 1.5rem; border-radius: 0.75rem; border: none; cursor: pointer; font-weight: 600;">Cancelar</button>
-                <button id="confirm-motivo" style="background: #f59e0b; color: white; padding: 0.5rem 1.5rem; border-radius: 0.75rem; border: none; cursor: pointer; font-weight: 600;">Confirmar</button>
+            
+            <div class="modal-inner">
+                <div class="form-group">
+                    <textarea id="custom-motivo-input" placeholder="Escriba aquí el motivo..."></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button id="cancel-motivo" class="btn-secondary">Cancelar</button>
+                <button id="confirm-motivo" class="btn-primary">Confirmar</button>
             </div>
         </div>
     </div>
@@ -523,7 +553,42 @@
         </div>
     </div>
 
-    <script src="../shared/storage.js"></script>
-    <script src="script.js"></script>
+    <!-- REPRODUCTOR DE AUDIO FLOTANTE (PC) -->
+    <div id="floating-audio-player" class="audio-player-bar hidden">
+        <div class="player-content glass">
+            <div class="player-left">
+                <div class="player-icon-box pulse-audio"><i class="fas fa-volume-up"></i></div>
+                <div class="player-meta">
+                    <span class="p-title">Nota de audio de la tarea</span>
+                    <span id="player-time" class="p-timer">0:00 / 0:00</span>
+                </div>
+            </div>
+            
+            <div class="player-center">
+                <div class="p-controls">
+                    <button id="player-play-btn" class="p-btn-main"><i class="fas fa-play"></i></button>
+                </div>
+                <div class="p-timeline-box">
+                    <input type="range" id="player-timeline" class="p-slider" min="0" value="0" step="0.1">
+                    <div id="player-bar-track" class="p-track"></div>
+                </div>
+            </div>
+
+            <div class="player-right">
+                <div class="p-volume-box">
+                    <i class="fas fa-volume-down" id="p-v-icon"></i>
+                    <div class="p-vol-container">
+                        <input type="range" id="player-volume" class="p-slider-vol" min="0" max="1" step="0.01" value="1">
+                        <div id="player-volume-track" class="p-vol-track"></div>
+                    </div>
+                </div>
+                <button id="player-download-btn" class="p-btn-action" title="Descargar"><i class="fas fa-download"></i></button>
+                <button id="player-close-btn" class="p-btn-action" title="Cerrar"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/src/shared/storage.js"></script>
+    <script src="/src/desktop/script.js"></script>
 </body>
 </html>

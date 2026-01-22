@@ -2,6 +2,8 @@
 let projects = [];
 let currentProject = null;
 let tasks = [];
+let currentUserId = null; // Guardar ID del usuario actual
+let currentReplyId = null; // ID del comentario al que se está respondiendo
 let draggedTaskId = null;
 let lastActiveView = 'kanban'; // Persistencia de vista (kanban o history)
 let currentHistoryFolder = null; // Carpeta seleccionada en el historial
@@ -138,6 +140,7 @@ async function showApp() {
     const session = await AuthService.getSession();
     
     if (session) {
+        currentUserId = session.user.id;
         try {
             const profile = await AuthService.getUserProfile(session.user.id);
             if (userDisplay && profile) {
@@ -171,6 +174,37 @@ async function showApp() {
     // Cargar proyectos de Supabase
     projects = await Storage.getProjects();
     await refreshProjectViews();
+
+    // Soporte para Deep Linking (Prioridad Tarea -> Proyecto)
+    const urlParams = new URLSearchParams(window.location.search);
+    const taskIdParam = urlParams.get('taskId');
+    const projectIdParam = urlParams.get('projectId');
+    
+    // 1. Si hay una tarea, la buscamos para saber a qué proyecto pertenece
+    if (taskIdParam) {
+        try {
+            const targetTask = await Storage.getTask(taskIdParam);
+            if (targetTask) {
+                const targetProject = projects.find(p => p.id === targetTask.proyecto_id);
+                if (targetProject) {
+                    await selectProject(targetProject);
+                    setTimeout(() => openTaskModal(taskIdParam), 500);
+                    return;
+                }
+            }
+        } catch (e) {
+            console.error("Error al cargar tarea desde URL:", e);
+        }
+    }
+
+    // 2. Si solo hay ID de proyecto
+    if (projectIdParam) {
+        const targetProject = projects.find(p => p.id === projectIdParam);
+        if (targetProject) {
+            await selectProject(targetProject);
+            return;
+        }
+    }
 
     // Ya no seleccionamos el primer proyecto por defecto, mostramos la galería (Dashboard)
     await showGallery();
@@ -765,7 +799,7 @@ async function moveTask(taskId, newStatus) {
         await Storage.updateTaskStatus(taskId, newStatus, motivo);
         const oldLabel = STATUS_NAMES[oldStatus] || oldStatus;
         const newLabel = STATUS_NAMES[newStatus] || newStatus;
-        logAction('MOVER', `movió la tarea "${previousState.titulo}" de ${oldLabel} a ${newLabel}`, taskId);
+        logAction('MOVER', `movió la tarea *"${previousState.titulo}"* de *${oldLabel}* a *${newLabel}*`, taskId);
     } catch (error) {
         console.error("Error al mover tarea:", error);
         tasks[taskIndex] = previousState; // Rollback
@@ -793,7 +827,7 @@ async function deleteTask(taskId) {
 
         try {
             await Storage.deleteTask(taskId);
-            logAction('ELIMINAR', `eliminó la tarea "${taskTitle}"`, taskId);
+            logAction('ELIMINAR', `eliminó la tarea *"${taskTitle}"*`, taskId);
         } catch (error) {
             console.error("Error al eliminar:", error);
             tasks = originalTasks; // Rollback
@@ -1002,6 +1036,10 @@ function renderHistoryItem(item) {
         typeClass = 'move'; icon = 'fa-exchange-alt';
     } else if (item.accion.includes('CREAR')) {
         typeClass = 'create'; icon = 'fa-plus-circle';
+    } else if (item.accion === 'RESPONDER') {
+        typeClass = 'reply'; icon = 'fa-reply';
+    } else if (item.accion === 'AÑADIR' && item.detalle.includes('comentario')) {
+        typeClass = 'comment'; icon = 'fa-comment-dots';
     }
 
     return `
@@ -1038,7 +1076,7 @@ async function deleteProject(projectId) {
         const projectName = projectToDelete ? projectToDelete.nombre : 'Proyecto';
 
         // Intentar registrar antes de borrar (porque se borrará el historial en cascada si es del mismo proyecto)
-        await logAction('ELIMINAR_PROYECTO', `eliminó el proyecto "${projectName}"`, null);
+        await logAction('ELIMINAR_PROYECTO', `eliminó el proyecto *"${projectName}"*`, null);
 
         const originalProjects = [...projects];
         projects = projects.filter(p => p.id !== projectId);
@@ -1146,7 +1184,7 @@ document.getElementById('save-task')?.addEventListener('click', async () => {
             if (!historyView.classList.contains('hidden')) renderHistory();
             updateDashboardMetrics();
             closeModals();
-            logAction('CREAR', `creó la tarea "${title}"`, newTask.id);
+            logAction('CREAR', `creó la tarea *"${title}"*`, newTask.id);
         }
     } catch (error) {
         console.error("Error al guardar tarea:", error);
@@ -1350,7 +1388,39 @@ document.body.addEventListener('click', (e) => {
 });
 
 fileInput?.addEventListener('change', (e) => {
-    const file = e.target.files[0];
+    handleSelectedFile(e.target.files[0]);
+});
+
+// Arrastre de archivos (Drag & Drop)
+const dropZone = document.getElementById('comment-input-area');
+if (dropZone) {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.add('drag-over');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.remove('drag-over');
+        }, false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const file = dt.files[0];
+        if (file) handleSelectedFile(file);
+    }, false);
+}
+
+function handleSelectedFile(file) {
     if (!file) return;
     
     selectedFile = file;
@@ -1363,26 +1433,32 @@ fileInput?.addEventListener('change', (e) => {
     if (previewSize) previewSize.textContent = (file.size / 1024).toFixed(1) + ' KB';
     
     // Resetear vistas
-    previewThumbnail.classList.add('hidden');
-    previewIcon.classList.add('hidden');
-    previewThumbnail.innerHTML = '';
+    if (previewThumbnail) {
+        previewThumbnail.classList.add('hidden');
+        previewThumbnail.innerHTML = '';
+    }
+    if (previewIcon) previewIcon.classList.add('hidden');
 
     if (file.type.startsWith('image/')) {
         const img = document.createElement('img');
         img.src = URL.createObjectURL(file);
-        previewThumbnail.appendChild(img);
-        previewThumbnail.classList.remove('hidden');
+        if (previewThumbnail) {
+            previewThumbnail.appendChild(img);
+            previewThumbnail.classList.remove('hidden');
+        }
     } else {
         let iconClass = 'fa-file';
         if (file.type === 'application/pdf') iconClass = 'fa-file-pdf';
         else if (file.type.startsWith('audio/')) iconClass = 'fa-file-audio';
         
-        previewIcon.innerHTML = `<i class="fas ${iconClass}"></i>`;
-        previewIcon.classList.remove('hidden');
+        if (previewIcon) {
+            previewIcon.innerHTML = `<i class="fas ${iconClass}"></i>`;
+            previewIcon.classList.remove('hidden');
+        }
     }
 
     attachmentPreview?.classList.remove('hidden');
-});
+}
 
 async function processFile(file) {
     if (file.type.startsWith('image/')) {
@@ -1428,20 +1504,230 @@ function openZoom(url) {
 
 let activeAudio = null;
 let activeAudioBtn = null;
+let currentPlayPromise = null; // Para evitar errores de interrupción (play/pause race condition)
+
+// Referencias Reproductor Flotante
+const audioPlayerBar = document.getElementById('floating-audio-player');
+const playerPlayBtn = document.getElementById('player-play-btn');
+const playerTime = document.getElementById('player-time');
+const playerTimeline = document.getElementById('player-timeline');
+const playerTrack = document.getElementById('player-bar-track');
+const playerVolume = document.getElementById('player-volume');
+const playerVolumeIcon = document.getElementById('p-v-icon');
+const playerDownloadBtn = document.getElementById('player-download-btn');
+const playerCloseBtn = document.getElementById('player-close-btn');
 
 function toggleAudio(btn, url) {
     if (activeAudio && activeAudio.src === url) {
-        if (activeAudio.paused) { activeAudio.play(); btn.innerHTML = '<i class="fas fa-pause"></i>'; }
-        else { activeAudio.pause(); btn.innerHTML = '<i class="fas fa-play"></i>'; }
+        if (activeAudio.paused) {
+            if (playerPlayBtn) playerPlayBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            currentPlayPromise = activeAudio.play();
+            if (currentPlayPromise !== undefined) {
+                currentPlayPromise.then(() => {
+                    currentPlayPromise = null;
+                    updateAudioUI(true);
+                }).catch(e => {
+                    currentPlayPromise = null;
+                    updateAudioUI(false);
+                    console.warn("Interrupted play:", e);
+                });
+            }
+        } else {
+            if (currentPlayPromise !== null) {
+                currentPlayPromise.then(() => {
+                    activeAudio.pause();
+                    currentPlayPromise = null;
+                    updateAudioUI(false);
+                });
+            } else {
+                activeAudio.pause();
+                updateAudioUI(false);
+            }
+        }
     } else {
-        if (activeAudio) { activeAudio.pause(); if (activeAudioBtn) activeAudioBtn.innerHTML = '<i class="fas fa-play"></i>'; }
+        // Detener audio anterior y resetear su botón si existe
+        if (activeAudio) {
+            if (currentPlayPromise !== null) {
+                currentPlayPromise.then(() => {
+                    activeAudio.pause();
+                    currentPlayPromise = null;
+                });
+            } else {
+                activeAudio.pause();
+            }
+            if (activeAudioBtn) activeAudioBtn.innerHTML = '<i class="fas fa-play"></i>';
+        }
+
         activeAudio = new Audio(url);
         activeAudioBtn = btn;
-        activeAudio.play();
-        btn.innerHTML = '<i class="fas fa-pause"></i>';
-        activeAudio.onended = () => btn.innerHTML = '<i class="fas fa-play"></i>';
+        
+        // Configurar eventos del nuevo audio
+        activeAudio.addEventListener('loadedmetadata', () => {
+            if (playerTimeline) {
+                playerTimeline.max = activeAudio.duration;
+                updatePlayerTimeDisplay();
+            }
+        });
+
+        activeAudio.addEventListener('timeupdate', () => {
+            if (playerTimeline) {
+                playerTimeline.value = activeAudio.currentTime;
+                updatePlayerProgress();
+                updatePlayerTimeDisplay();
+            }
+        });
+
+        activeAudio.addEventListener('ended', () => {
+            updateAudioUI(false);
+            if (activeAudioBtn) activeAudioBtn.innerHTML = '<i class="fas fa-play"></i>';
+            currentPlayPromise = null;
+        });
+
+        // Aplicar volumen actual del slider al nuevo audio
+        if (playerVolume) {
+            activeAudio.volume = parseFloat(playerVolume.value);
+            // Forzar actualización de iconos al iniciar
+            playerVolume.dispatchEvent(new Event('input'));
+        }
+
+        // Mostrar el reproductor inmediatamente para feedback visual
+        audioPlayerBar?.classList.remove('hidden');
+        if (playerPlayBtn) playerPlayBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        currentPlayPromise = activeAudio.play();
+        if (currentPlayPromise !== undefined) {
+            currentPlayPromise.then(() => {
+                currentPlayPromise = null;
+                updateAudioUI(true);
+            }).catch(e => {
+                currentPlayPromise = null;
+                updateAudioUI(false);
+                console.warn("Interrupted play:", e);
+            });
+        }
+
+        // Download link
+        if (playerDownloadBtn) {
+            playerDownloadBtn.onclick = () => Storage.downloadFile(url, 'audio-nota.mp3', playerDownloadBtn);
+        }
     }
 }
+
+function updateAudioUI(isPlaying) {
+    const icon = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
+    if (activeAudioBtn) activeAudioBtn.innerHTML = icon;
+    if (playerPlayBtn) {
+        playerPlayBtn.innerHTML = icon;
+        // Animación de feedback al cambiar estado
+        playerPlayBtn.classList.remove('p-btn-press-anim');
+        void playerPlayBtn.offsetWidth; // Trigger reflow
+        playerPlayBtn.classList.add('p-btn-press-anim');
+    }
+    
+    const iconBox = audioPlayerBar?.querySelector('.player-icon-box');
+    if (isPlaying) iconBox?.classList.add('pulse-audio');
+    else iconBox?.classList.remove('pulse-audio');
+}
+
+function updatePlayerTimeDisplay() {
+    if (!activeAudio || !playerTime) return;
+    const current = formatTime(activeAudio.currentTime);
+    const total = formatTime(activeAudio.duration || 0);
+    playerTime.textContent = `${current} / ${total}`;
+}
+
+function updatePlayerProgress() {
+    if (!activeAudio || !playerTimeline || !playerTrack) return;
+    const percentage = (activeAudio.currentTime / activeAudio.duration) * 100;
+    playerTrack.style.width = `${percentage}%`;
+}
+
+function formatTime(seconds) {
+    const min = Math.floor(seconds / 60);
+    const sec = Math.floor(seconds % 60);
+    return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+}
+
+// Eventos del Reproductor Flotante
+playerPlayBtn?.addEventListener('click', () => {
+    if (!activeAudio) return;
+
+    // Feedback instantáneo de clic
+    playerPlayBtn.classList.remove('p-btn-press-anim');
+    void playerPlayBtn.offsetWidth;
+    playerPlayBtn.classList.add('p-btn-press-anim');
+
+    if (activeAudio.paused) {
+        if (playerPlayBtn) playerPlayBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        currentPlayPromise = activeAudio.play();
+        if (currentPlayPromise !== undefined) {
+            currentPlayPromise.then(() => {
+                currentPlayPromise = null;
+                updateAudioUI(true);
+            }).catch(e => {
+                currentPlayPromise = null;
+                updateAudioUI(false);
+                console.warn("Interrupted play:", e);
+            });
+        }
+    } else {
+        if (currentPlayPromise !== null) {
+            currentPlayPromise.then(() => {
+                activeAudio.pause();
+                currentPlayPromise = null;
+                updateAudioUI(false);
+            });
+        } else {
+            activeAudio.pause();
+            updateAudioUI(false);
+        }
+    }
+});
+
+playerTimeline?.addEventListener('input', (e) => {
+    if (!activeAudio) return;
+    activeAudio.currentTime = e.target.value;
+    updatePlayerProgress();
+});
+
+playerVolume?.addEventListener('input', (e) => {
+    if (!activeAudio) return;
+    const vol = parseFloat(e.target.value);
+    activeAudio.volume = vol;
+    
+    // Actualizar indicador visual de volumen (Azul)
+    const volTrack = document.getElementById('player-volume-track');
+    if (volTrack) volTrack.style.width = `${vol * 100}%`;
+    
+    // Actualizar iconos de volumen (el pequeño y el grande de la izquierda)
+    const bigVolumeIcon = audioPlayerBar?.querySelector('.player-icon-box i');
+    
+    let iconClass = 'fas fa-volume-up';
+    if (vol === 0) iconClass = 'fas fa-volume-mute';
+    else if (vol < 0.4) iconClass = 'fas fa-volume-off';
+    else if (vol < 0.7) iconClass = 'fas fa-volume-down';
+
+    if (playerVolumeIcon) playerVolumeIcon.className = iconClass;
+    if (bigVolumeIcon) bigVolumeIcon.className = iconClass;
+});
+
+playerCloseBtn?.addEventListener('click', () => {
+    if (activeAudio) {
+        if (currentPlayPromise !== null) {
+            currentPlayPromise.then(() => {
+                activeAudio.pause();
+                currentPlayPromise = null;
+                if (activeAudioBtn) activeAudioBtn.innerHTML = '<i class="fas fa-play"></i>';
+            });
+        } else {
+            activeAudio.pause();
+            if (activeAudioBtn) activeAudioBtn.innerHTML = '<i class="fas fa-play"></i>';
+        }
+    }
+    audioPlayerBar?.classList.add('hidden');
+});
 
 // Eventos Zoom
 let currentZoom = 1;
@@ -1538,30 +1824,52 @@ function renderTaskElements() {
         taskNumberedList.appendChild(div);
     });
 
-    // Renderizar Comentarios con Soporte Multimedia
+    // Renderizar Comentarios con Soporte Multimedia y Respuestas
     comments.forEach(item => {
+        const isMe = currentUserId && item.usuario_id === currentUserId;
         const div = document.createElement('div');
-        div.className = 'comment-bubble';
+        div.className = `comment-bubble ${isMe ? 'me' : 'other'}`;
         div.id = `comment-${item.id}`;
         const dateStr = new Date(item.created_at).toLocaleString();
         
+        // Soporte para hilos de respuesta (WhatsApp Style)
+        let replyHTML = '';
+        if (item.reply_to_id) {
+            const parent = taskElements.find(e => e.id === item.reply_to_id);
+            if (parent) {
+                const parentText = parent.contenido ? parent.contenido : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
+                replyHTML = `
+                    <div class="reply-reference" onclick="scrollToMessage('${parent.id}')">
+                        <span class="reply-author">${parent.usuario_id === currentUserId ? 'Tú' : (parent.usuario_nombre || 'Usuario')}</span>
+                        <span class="reply-text">${parentText}</span>
+                    </div>
+                `;
+            }
+        }
+
         let attachmentHTML = '';
         if (item.archivo_url) {
-            if (item.archivo_tipo === 'image') {
+            const isImage = item.archivo_tipo === 'image' || item.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i);
+            const isAudio = item.archivo_tipo === 'audio' || item.archivo_url.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i);
+            const isPDF = item.archivo_tipo === 'pdf' || item.archivo_url.match(/\.pdf$/i);
+
+            if (isImage) {
                 attachmentHTML = `
                     <div class="comment-image-preview" onclick="openZoom('${item.archivo_url}')">
                         <img src="${item.archivo_url}" alt="Adjunto">
                     </div>`;
-            } else if (item.archivo_tipo === 'audio') {
+            } else if (isAudio) {
                 attachmentHTML = `
                     <div class="comment-audio-player">
                         <div class="audio-controls">
                             <button class="btn-audio-action" onclick="toggleAudio(this, '${item.archivo_url}')"><i class="fas fa-play"></i></button>
                             <div class="audio-info">Nota de audio</div>
-                            <a href="${item.archivo_url}" download class="btn-icon-secondary" style="margin-left: auto;"><i class="fas fa-download"></i></a>
+                            <button onclick="event.stopPropagation(); Storage.downloadFile('${item.archivo_url}', 'audio-${item.id}.mp3', this)" class="btn-icon-secondary" style="margin-left: auto; border:none; background:none; cursor:pointer;" title="Descargar audio">
+                                <i class="fas fa-download"></i>
+                            </button>
                         </div>
                     </div>`;
-            } else if (item.archivo_tipo === 'pdf') {
+            } else if (isPDF) {
                 attachmentHTML = `
                     <a href="${item.archivo_url}" target="_blank" class="comment-pdf-link">
                         <i class="fas fa-file-pdf" style="color: #ef4444; font-size: 1.2rem;"></i>
@@ -1578,25 +1886,86 @@ function renderTaskElements() {
         div.innerHTML = `
             <div class="comment-header">
                 <div>
-                    <span class="comment-author">${item.usuario_nombre || 'Usuario'}</span>
+                    <span class="comment-author">${isMe ? 'Tú' : (item.usuario_nombre || 'Usuario')}</span>
                     <span class="comment-date">${dateStr} ${editHistory}</span>
                 </div>
                 <div class="comment-actions">
-                    <button class="btn-edit-comment" onclick="editCommentUI('${item.id}')" title="Editar comentario">
-                        <i class="fas fa-pencil-alt"></i>
+                    <button class="comment-menu-btn" onclick="toggleCommentMenu(event, '${item.id}')">
+                        <i class="fas fa-ellipsis-v"></i>
                     </button>
-                    <button class="delete-element" title="Eliminar" onclick="removeTaskElement('${item.id}')">
-                        <i class="fas fa-times"></i>
-                    </button>
+                    <div id="dropdown-${item.id}" class="comment-dropdown hidden">
+                        <button onclick="replyComment('${item.id}')">
+                            <i class="fas fa-reply"></i> Responder
+                        </button>
+                        ${isMe ? `
+                        <button onclick="editCommentUI('${item.id}')">
+                            <i class="fas fa-pencil-alt"></i> Editar
+                        </button>
+                        <button class="danger-btn" onclick="removeTaskElement('${item.id}')">
+                            <i class="fas fa-trash-alt"></i> Eliminar
+                        </button>
+                        ` : ''}
+                    </div>
                 </div>
             </div>
             <div class="comment-content">
+                ${replyHTML}
                 <p>${item.contenido}</p>
                 ${attachmentHTML}
             </div>
         `;
         taskDiscussion.appendChild(div);
     });
+}
+
+function toggleCommentMenu(event, id) {
+    event.stopPropagation();
+    const allDropdowns = document.querySelectorAll('.comment-dropdown');
+    allDropdowns.forEach(d => {
+        if (d.id !== `dropdown-${id}`) d.classList.add('hidden');
+    });
+    
+    const dropdown = document.getElementById(`dropdown-${id}`);
+    dropdown?.classList.toggle('hidden');
+
+    // Cerrar al hacer clic fuera
+    const closeMenu = () => {
+        dropdown?.classList.add('hidden');
+        document.removeEventListener('click', closeMenu);
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 10);
+}
+
+function replyComment(id) {
+    const item = taskElements.find(e => e.id === id);
+    if (!item) return;
+
+    currentReplyId = id;
+    const preview = document.getElementById('reply-preview');
+    const author = document.getElementById('reply-preview-author');
+    const text = document.getElementById('reply-preview-text');
+    
+    author.textContent = item.usuario_id === currentUserId ? 'Respondiendo a ti' : `Respondiendo a ${item.usuario_nombre}`;
+    text.textContent = item.contenido || (item.archivo_url ? '📎 Archivo adjunto' : '...');
+    
+    preview?.classList.remove('hidden');
+    document.getElementById('task-comment-input')?.focus();
+}
+
+function cancelReply() {
+    currentReplyId = null;
+    document.getElementById('reply-preview')?.classList.add('hidden');
+}
+
+function scrollToMessage(id) {
+    const el = document.getElementById(`comment-${id}`);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.style.backgroundColor = 'rgba(5, 166, 75, 0.1)';
+        setTimeout(() => {
+            el.style.backgroundColor = '';
+        }, 2000);
+    }
 }
 
 async function editCommentUI(id) {
@@ -1699,13 +2068,25 @@ async function addElementFromUI(type) {
             contenido: content,
             posicion: posicion,
             archivo_url: archivo_url,
-            archivo_tipo: archivo_tipo
+            archivo_tipo: archivo_tipo,
+            reply_to_id: currentReplyId
         });
         taskElements.push(newElement);
         input.value = '';
         renderTaskElements();
 
-        logAction('AÑADIR', `añadió un ${labels[type] || 'elemento'} a la tarea: "${content || (archivo_tipo ? 'Archivo adjunto' : '')}"`, editingTaskId);
+        let logDetail = `Añadió un *${labels[type] || 'elemento'}*:\n"${content || (archivo_tipo ? 'Archivo adjunto' : '')}"`;
+        let logActionType = 'AÑADIR';
+
+        if (currentReplyId) {
+            const parent = taskElements.find(e => e.id === currentReplyId);
+            const truncatedParent = parent?.contenido ? (parent.contenido.substring(0, 30) + (parent.contenido.length > 30 ? '...' : '')) : (parent?.archivo_url ? '📎 Archivo' : 'Mensaje');
+            logDetail = `Respondió a: *"${truncatedParent}"*\n💬 *Respuesta:* "${content}"`;
+            logActionType = 'RESPONDER';
+        }
+        
+        logAction(logActionType, logDetail, editingTaskId);
+        cancelReply();
     } catch (error) {
         console.error("Error al añadir elemento:", error);
         alert("Error al procesar la solicitud.");
@@ -1744,7 +2125,7 @@ async function removeTaskElement(id) {
 
         // Registrar en historial
         const labels = { 'COMMENT': 'comentario', 'CHECKLIST': 'item de checklist', 'NUMBERED': 'paso numerado' };
-        logAction('ELIMINAR', `eliminó un ${labels[item.tipo] || 'elemento'}: "${item.contenido}"`, editingTaskId);
+        logAction('ELIMINAR', `eliminó un ${labels[item.tipo] || 'elemento'}: *"${item.contenido}"*`, editingTaskId);
     } catch (error) {
         console.error("Error al eliminar elemento:", error);
     }

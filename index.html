@@ -7,10 +7,12 @@
     
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#082359">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="img/logo.webp">
+    <meta name="apple-mobile-web-app-title" content="DaviProjects">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/img/logo.webp">
 
     <style>
         body {
@@ -39,16 +41,16 @@
     </style>
     <script>
         function checkDevice() {
-            // Detección más estricta: Agente de usuario + Ancho de pantalla
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
                              || window.matchMedia("(max-width: 768px)").matches;
             
             console.log("Detección: ", isMobile ? "Móvil" : "Escritorio");
 
+            const search = window.location.search;
             if (isMobile) {
-                window.location.replace("src/mobile/index.html");
+                window.location.replace("/src/mobile/index.html" + search);
             } else {
-                window.location.replace("src/desktop/index.html");
+                window.location.replace("/src/desktop/index.html" + search);
             }
         }
         // Ejecución inmediata
@@ -58,8 +60,12 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(reg => console.log('Service Worker registrado', reg))
-                    .catch(err => console.error('Error al registrar Service Worker', err));
+                    .then(reg => {
+                        console.log('Service Worker registrado con éxito:', reg.scope);
+                    })
+                    .catch(err => {
+                        console.error('Error al registrar Service Worker:', err);
+                    });
             });
         }
     </script>

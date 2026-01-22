@@ -5,6 +5,7 @@ let currentTasks = []; // Tareas del proyecto seleccionado
 let currentProjectId = null;
 let currentTaskId = null;
 let currentAttachment = null;
+let currentMobileReplyId = null; // Para respuestas style WhatsApp
 
 // --- NAVEGACIÓN ENTRE TABS ---
 document.addEventListener('click', (e) => {
@@ -146,6 +147,44 @@ async function initMobile() {
     };
 
     await loadData();
+
+    // Soporte para Deep Linking (Prioridad Tarea -> Proyecto)
+    const urlParams = new URLSearchParams(window.location.search);
+    const taskIdParam = urlParams.get('taskId');
+    const projectIdParam = urlParams.get('projectId');
+    
+    // 1. Si hay una tarea, buscamos su proyecto automáticamente
+    if (taskIdParam) {
+        const targetTask = allTasks.find(t => t.id === taskIdParam);
+        if (targetTask) {
+            await selectProject(targetTask.proyecto_id);
+            
+            // Sincronizar el filtro con el estado de la tarea (UX fix)
+            currentStatusFilter = targetTask.estado;
+            document.querySelectorAll('.filter-pill').forEach(pill => {
+                const isActive = pill.dataset.status === targetTask.estado;
+                pill.classList.toggle('active', isActive);
+                if (isActive) {
+                    pill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }
+            });
+            renderTasks();
+
+            // Pequeña pausa para asegurar que el render de la lista terminó
+            setTimeout(() => openTaskDetail(taskIdParam), 300);
+            return;
+        }
+    }
+
+    // 2. Si solo hay ID de proyecto
+    if (projectIdParam) {
+        const targetProject = projects.find(p => p.id === projectIdParam);
+        if (targetProject) {
+            await selectProject(targetProject.id);
+            return;
+        }
+    }
+
     switchView('mobile-gallery-view');
 }
 
@@ -313,7 +352,7 @@ async function createProject(nombre, descripcion = '', fecha_vencimiento = null)
             fecha_vencimiento: fecha_vencimiento 
         });
         
-        await logMobileAction('CREAR_PROYECTO', `creó el proyecto "${nombre}"`, null);
+        await logMobileAction('CREAR_PROYECTO', `creó el proyecto *"${nombre}"*`, null);
 
         showMobileToast("Éxito", "Proyecto creado correctamente");
         await loadData();
@@ -370,7 +409,7 @@ async function handleSaveTask() {
             projectId: currentProjectId
         });
 
-        await logMobileAction('CREAR', `creó la tarea "${title}"`, newTask.id);
+        await logMobileAction('CREAR', `creó la tarea *"${title}"*`, newTask.id);
 
         closeMobileSheet('mobile-modal-task');
         showMobileToast("Éxito", "Tarea creada");
@@ -541,19 +580,35 @@ async function loadTaskElements() {
     
     commentsList.innerHTML = comments.map(e => {
         const isMe = e.usuario_id === session.user.id;
-        const hasImage = e.archivo_url && (e.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i));
-        const hasAudio = e.archivo_url && (e.archivo_url.match(/\.(mp3|wav|ogg|m4a)$/i));
+        const hasImage = e.archivo_url && (e.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i) || (e.archivo_tipo && e.archivo_tipo.startsWith('image/')));
+        const hasAudio = e.archivo_url && (e.archivo_url.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i) || (e.archivo_tipo && e.archivo_tipo.startsWith('audio/')));
         
+        // Bloque de respuesta (WhatsApp Style)
+        let replyBlock = '';
+        if (e.reply_to_id) {
+            const parent = elements.find(p => p.id === e.reply_to_id);
+            if (parent) {
+                const parentText = parent.contenido ? parent.contenido : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
+                replyBlock = `
+                    <div class="reply-reference-mobile" onclick="event.stopPropagation(); scrollToMobileMessage('${parent.id}')">
+                        <span class="reply-author-mobile">${parent.usuario_id === session.user.id ? 'Tú' : (parent.usuario_nombre || 'Usuario')}</span>
+                        <span class="reply-text-mobile">${parentText}</span>
+                    </div>
+                `;
+            }
+        }
+
         return `
-            <div class="comment-bubble ${isMe ? 'me' : 'other'}" onclick="handleCommentClick('${e.id}', \`${e.contenido.replace(/`/g, '\\`')}\`, ${isMe})">
+            <div id="mobile-comment-${e.id}" class="comment-bubble ${isMe ? 'me' : 'other'}" onclick="handleCommentClick('${e.id}', \`${(e.contenido || '').replace(/`/g, '\\`')}\`, ${isMe}, \`${(e.usuario_nombre || 'Usuario').replace(/`/g, '\\`')}\`)">
                 <span class="comment-meta">${isMe ? 'Tú' : (e.usuario_nombre || 'Usuario')}</span>
                 <div class="comment-text">
-                    ${e.contenido}
+                    ${replyBlock}
+                    ${e.contenido || ''}
                     ${hasImage ? `<img src="${e.archivo_url}" class="comment-image" onclick="event.stopPropagation(); window.open('${e.archivo_url}', '_blank')">` : ''}
                     ${hasAudio ? `
                         <div class="audio-container-mobile" onclick="event.stopPropagation()" style="margin-top:10px; width: 100%;">
                             <audio src="${e.archivo_url}" controls style="width: 100%; height: 35px;"></audio>
-                            <a href="${e.archivo_url}" download class="audio-download-link" style="display:inline-block; margin-top:5px; font-size:0.7rem; color:inherit; opacity:0.8;">
+                            <a href="javascript:void(0)" onclick="event.stopPropagation(); Storage.downloadFile('${e.archivo_url}', 'audio-${e.id}.mp3', this)" class="audio-download-link" style="display:inline-block; margin-top:5px; font-size:0.7rem; color:inherit; opacity:0.8; min-width: 100px;">
                                 <i class="fas fa-download"></i> Descargar audio
                             </a>
                         </div>
@@ -570,13 +625,54 @@ async function loadTaskElements() {
 
 let activeCommentId = null;
 let activeCommentContent = "";
+let activeCommentAuthor = "";
 
-// Opciones de comentario (Editar/Eliminar) con UI propia
-function handleCommentClick(id, currentContent, isMe) {
-    if (!isMe) return;
+// Opciones de comentario (Responder/Editar/Eliminar)
+function handleCommentClick(id, currentContent, isMe, author) {
     activeCommentId = id;
     activeCommentContent = currentContent;
+    activeCommentAuthor = author;
+    
+    // Solo permitir editar/eliminar si es mío
+    const btnEdit = document.getElementById('btn-edit-comment-option');
+    const btnDelete = document.getElementById('btn-delete-comment-option');
+    
+    if (btnEdit) btnEdit.style.display = isMe ? 'flex' : 'none';
+    if (btnDelete) btnDelete.style.display = isMe ? 'flex' : 'none';
+    
     openMobileSheet('comment-actions-sheet');
+}
+
+function replyMobileComment() {
+    currentMobileReplyId = activeCommentId;
+    closeMobileSheet('comment-actions-sheet');
+    
+    const preview = document.getElementById('mobile-reply-preview');
+    const authorEl = document.getElementById('mobile-reply-author');
+    const textEl = document.getElementById('mobile-reply-text');
+    
+    authorEl.textContent = activeCommentAuthor === 'Tú' ? 'Respondiendo a ti' : `Respondiendo a ${activeCommentAuthor}`;
+    textEl.textContent = activeCommentContent || '📎 Archivo adjunto';
+    
+    preview?.classList.remove('hidden');
+    document.getElementById('new-comment-mobile')?.focus();
+}
+
+function cancelMobileReply() {
+    currentMobileReplyId = null;
+    document.getElementById('mobile-reply-preview')?.classList.add('hidden');
+}
+
+function scrollToMobileMessage(id) {
+    const el = document.getElementById(`mobile-comment-${id}`);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const originalOpacity = el.style.opacity || '1';
+        el.style.filter = 'brightness(1.2)';
+        setTimeout(() => {
+            el.style.filter = '';
+        }, 1500);
+    }
 }
 
 function openCommentEdit() {
@@ -654,14 +750,29 @@ async function handleAddElement(type) {
             contenido: val || (currentAttachment ? 'Adjunto' : ''),
             archivo_url: archivoUrl,
             archivo_tipo: currentAttachment ? currentAttachment.type : null,
-            posicion: Math.floor(Date.now() / 1000) // Usar segundos para evitar desbordamiento de entero
+            posicion: Math.floor(Date.now() / 1000),
+            reply_to_id: type === 'COMMENT' ? currentMobileReplyId : null
         });
 
         const labels = { 'COMMENT': 'comentario', 'CHECKLIST': 'checklist', 'NUMBERED': 'lista' };
-        await logMobileAction('AÑADIR', `añadió un ${labels[type]} a la tarea: "${val || (currentAttachment ? 'Archivo adjunto' : '')}"`, currentTaskId);
+        
+        let logDetail = `Añadió un *${labels[type]}*:\n"${val || (currentAttachment ? 'Archivo adjunto' : '')}"`;
+        let logActionType = 'AÑADIR';
+
+        if (type === 'COMMENT' && currentMobileReplyId) {
+            const parent = currentElements.find(p => p.id === currentMobileReplyId);
+            const truncatedParent = parent?.contenido ? (parent.contenido.substring(0, 30) + (parent.contenido.length > 30 ? '...' : '')) : (parent?.archivo_url ? '📎 Archivo' : 'Mensaje');
+            logDetail = `Respondió a: *"${truncatedParent}"*\n💬 *Respuesta:* "${val}"`;
+            logActionType = 'RESPONDER';
+        }
+        
+        await logMobileAction(logActionType, logDetail, currentTaskId);
 
         input.value = '';
-        if (type === 'COMMENT') clearMobileAttachment();
+        if (type === 'COMMENT') {
+            clearMobileAttachment();
+            cancelMobileReply();
+        }
         
         loadTaskElements();
     } catch (e) {
@@ -739,7 +850,7 @@ async function deleteElement(id) {
     
     if (item) {
         const labels = { 'COMMENT': 'comentario', 'CHECKLIST': 'checklist', 'NUMBERED': 'lista' };
-        await logMobileAction('ELIMINAR', `eliminó un ${labels[item.tipo] || 'elemento'}: "${item.contenido}"`, currentTaskId);
+        await logMobileAction('ELIMINAR', `eliminó un ${labels[item.tipo] || 'elemento'}: *"${item.contenido}"*`, currentTaskId);
     }
     
     loadTaskElements();
@@ -752,8 +863,16 @@ async function updateTaskStatusMobile(newStatus) {
     const oldStatus = task.estado;
     if (oldStatus === newStatus) return;
 
+    let motivo = null;
+    if (newStatus === 'REVIEW' || newStatus === 'REJECTED') {
+        const actionLabel = newStatus === 'REVIEW' ? 'la Revisión' : 'el Rechazo';
+        motivo = await promptMotivoMobile(`Motivo de ${actionLabel}`);
+        if (motivo === null) return; // Cancelado
+    }
+
     // --- ACCIÓN INSTANTÁNEA (OPTIMISTIC UI) ---
     task.estado = newStatus;
+    if (motivo) task.motivo = motivo;
     
     // Cerrar modal y cambiar filtro inmediatamente para feedback instantáneo
     closeMobileSheet('mobile-task-detail');
@@ -769,7 +888,7 @@ async function updateTaskStatusMobile(newStatus) {
     // --- SINCRONIZACIÓN EN SEGUNDO PLANO ---
     (async () => {
         try {
-            await Storage.updateTaskStatus(currentTaskId, newStatus);
+            await Storage.updateTaskStatus(currentTaskId, newStatus, motivo);
             
             const labels = {
                 'TODO': 'Pendiente',
@@ -779,7 +898,7 @@ async function updateTaskStatusMobile(newStatus) {
                 'REJECTED': 'Rechazado'
             };
             
-            await logMobileAction('MOVER', `movió la tarea "${task.titulo}" de ${labels[oldStatus] || oldStatus} a ${labels[newStatus] || newStatus}`, currentTaskId);
+            await logMobileAction('MOVER', `movió la tarea *"${task.titulo}"* de *${labels[oldStatus] || oldStatus}* a *${labels[newStatus] || newStatus}*`, currentTaskId);
             
         } catch (e) {
             console.error("Error en sincronización de estado:", e);
@@ -797,6 +916,53 @@ async function updateTaskStatusMobile(newStatus) {
     })();
 }
 
+// --- PROMPT MOTIVO MÓVIL ---
+function promptMotivoMobile(titulo) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('mobile-modal-motivo');
+        const input = document.getElementById('mobile-motivo-input');
+        const btnConfirm = document.getElementById('btn-confirm-motivo-mobile');
+        const btnCancel = document.getElementById('btn-cancel-motivo-mobile');
+        const btnCloseX = modal.querySelector('.sheet-header .btn-icon');
+        const titleEl = document.getElementById('mobile-motivo-title');
+
+        titleEl.textContent = titulo;
+        input.value = '';
+        openMobileSheet('mobile-modal-motivo');
+        setTimeout(() => input.focus(), 300);
+
+        const handleConfirm = () => {
+            const val = input.value.trim();
+            if (!val) {
+                showMobileToast("Aviso", "El motivo es obligatorio", true);
+                return;
+            }
+            removeListeners();
+            closeMobileSheet('mobile-modal-motivo');
+            resolve(val);
+        };
+
+        const handleCancel = () => {
+            removeListeners();
+            closeMobileSheet('mobile-modal-motivo');
+            resolve(null);
+        };
+
+        const removeListeners = () => {
+            btnConfirm.removeEventListener('click', handleConfirm);
+            btnCancel.removeEventListener('click', handleCancel);
+            btnCloseX.removeEventListener('click', handleCancel);
+        };
+
+        btnConfirm.addEventListener('click', handleConfirm);
+        btnCancel.addEventListener('click', handleCancel);
+        btnCloseX.addEventListener('click', handleCancel);
+        
+        // También manejar clic fuera si el sistema lo soporta (overlay)
+        modal.onclick = (e) => { if (e.target === modal) handleCancel(); };
+    });
+}
+
 async function handleDeleteTask() {
     const task = currentTasks.find(t => t.id === currentTaskId);
     if (!task) return;
@@ -806,7 +972,7 @@ async function handleDeleteTask() {
         const title = task.titulo;
         await Storage.deleteTask(currentTaskId);
         
-        await logMobileAction('ELIMINAR', `eliminó la tarea "${title}"`, currentTaskId);
+        await logMobileAction('ELIMINAR', `eliminó la tarea *"${title}"*`, currentTaskId);
 
         closeMobileSheet('mobile-task-detail');
         currentTasks = await Storage.getTasks(currentProjectId);
@@ -853,7 +1019,7 @@ async function saveTaskUpdateMobile() {
             fecha_vencimiento: dueDate || null
         });
 
-        await logMobileAction('EDITAR', `editó la tarea "${title}"`, currentTaskId);
+        await logMobileAction('EDITAR', `editó la tarea *"${title}"*`, currentTaskId);
 
         // Actualizar datos locales
         currentTasks = await Storage.getTasks(currentProjectId);
@@ -937,16 +1103,31 @@ async function renderHistory() {
             const group = taskGroups[currentHistoryFolder];
             if (!group) { currentHistoryFolder = null; renderHistory(); return; }
 
-            const itemsHTML = group.items.map(log => `
+            const itemsHTML = group.items.map(log => {
+                let icon = 'fa-history';
+                let color = 'var(--accent-color)';
+                let detail = log.detalle || '';
+                
+                if (log.accion === 'RESPONDER') {
+                    icon = 'fa-reply'; color = '#8b5cf6';
+                } else if (log.accion === 'AÑADIR' && detail.includes('comentario')) {
+                    icon = 'fa-comment-dots'; color = '#0d9488';
+                } else if (log.accion.includes('ELIMINAR')) {
+                    icon = 'fa-trash-alt'; color = '#ef4444';
+                } else if (log.accion.includes('CREAR')) {
+                    icon = 'fa-plus-circle'; color = '#10b981';
+                }
+
+                return `
                 <div class="log-item-mobile">
-                    <div class="log-icon"><i class="fas fa-history"></i></div>
+                    <div class="log-icon" style="background: ${color}20; color: ${color};"><i class="fas ${icon}"></i></div>
                     <div class="log-details">
-                        <p><strong>${log.usuario_nombre || 'Usuario'}</strong> ${log.accion}</p>
-                        <p style="font-size:0.8rem; color:var(--text-muted);">${log.detalle || ''}</p>
+                        <p><strong>${log.usuario_nombre || 'Usuario'}</strong> ${log.accion === 'RESPONDER' ? '' : log.accion.toLowerCase() + ': '}${detail}</p>
                         <span>${new Date(log.created_at).toLocaleString()}</span>
                     </div>
                 </div>
-            `).join('');
+                `;
+            }).join('');
 
             list.innerHTML = `
                 <div class="history-detail-view">
@@ -1037,11 +1218,31 @@ function getRelativeTime(date) {
 
 // --- HELPERS ---
 function openMobileSheet(id) {
-    document.getElementById(id).classList.remove('hidden');
+    const sheet = document.getElementById(id);
+    if (!sheet) return;
+    
+    sheet.classList.remove('hidden');
+    // Forzamos un reflow para que la transición funcione
+    void sheet.offsetWidth;
+    sheet.classList.add('active');
+    
+    // Evitar scroll del fondo
+    document.body.style.overflow = 'hidden';
 }
 
 function closeMobileSheet(id) {
-    document.getElementById(id).classList.add('hidden');
+    const sheet = document.getElementById(id);
+    if (!sheet) return;
+    
+    sheet.classList.remove('active');
+    // Esperar a que termine la animación antes de ocultar
+    setTimeout(() => {
+        sheet.classList.add('hidden');
+        // Restaurar scroll solo si no hay otros sheets abiertos
+        if (!document.querySelector('.mobile-bottom-sheet.active')) {
+            document.body.style.overflow = '';
+        }
+    }, 300);
 }
 
 function showMobileToast(title, message, isError = false) {

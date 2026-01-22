@@ -5,15 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DaviProjects Mobile</title>
     <meta name="theme-color" content="#082359">
-    <link rel="manifest" href="../../manifest.json">
-    <link rel="apple-touch-icon" href="../../img/logo.webp">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DaviProjects">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/img/logo.webp">
     
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/src/mobile/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-    <script src="../shared/supabase-config.js"></script>
+    <script src="/src/shared/supabase-config.js"></script>
     <style>
         #mobile-app { display: none; }
         .loading-screen {
@@ -25,7 +29,18 @@
             color: white;
             font-family: 'Inter', sans-serif;
         }
-
+    </style>
+    <script>
+        // Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('SW registrado (Mobile):', reg.scope))
+                    .catch(err => console.error('Error SW (Mobile):', err));
+            });
+        }
+    </script>
+    <style>
         /* Modal de Alerta Móvil */
         .mobile-alert-overlay {
             position: fixed;
@@ -412,16 +427,29 @@
                             </div>
                         </div>
 
-                        <div class="comment-input-area">
-                            <input type="file" id="mobile-file-input" hidden onchange="handleMobileFileSelect(this)">
-                            <button class="btn-attach" onclick="document.getElementById('mobile-file-input').click()">
-                                <i class="fas fa-paperclip"></i>
-                            </button>
-                            <button class="btn-attach" onclick="openMobileCamera()">
-                                <i class="fas fa-camera"></i>
-                            </button>
-                            <textarea id="new-comment-mobile" placeholder="Escribe un mensaje..."></textarea>
-                            <button id="btn-send-comment-mobile" class="send-circle"><i class="fas fa-paper-plane"></i></button>
+                        <div class="comment-input-area" style="flex-direction: column; align-items: stretch; padding: 0;">
+                            <!-- Preview de Respuesta estilo WhatsApp -->
+                            <div id="mobile-reply-preview" class="reply-preview-mobile hidden">
+                                <div class="reply-preview-info">
+                                    <div id="mobile-reply-author" class="title">Autor</div>
+                                    <div id="mobile-reply-text" class="text">Mensaje...</div>
+                                </div>
+                                <button onclick="cancelMobileReply()" class="btn-close-reply-mobile">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+
+                            <div style="display: flex; align-items: center; padding: 10px 15px; width: 100%;">
+                                <input type="file" id="mobile-file-input" hidden onchange="handleMobileFileSelect(this)">
+                                <button class="btn-attach" onclick="document.getElementById('mobile-file-input').click()">
+                                    <i class="fas fa-paperclip"></i>
+                                </button>
+                                <button class="btn-attach" onclick="openMobileCamera()">
+                                    <i class="fas fa-camera"></i>
+                                </button>
+                                <textarea id="new-comment-mobile" placeholder="Escribe un mensaje..."></textarea>
+                                <button id="btn-send-comment-mobile" class="send-circle"><i class="fas fa-paper-plane"></i></button>
+                            </div>
                         </div>
                     </div>
 
@@ -502,11 +530,15 @@
                 <button class="btn-icon circle" onclick="closeMobileSheet('comment-actions-sheet')"><i class="fas fa-times"></i></button>
             </div>
             <div class="sheet-body" style="gap: 12px;">
-                <button class="btn-action-row" onclick="openCommentEdit()">
-                    <i class="fas fa-edit" style="color: var(--blue);"></i>
+                <button class="btn-action-row" onclick="replyMobileComment()">
+                    <i class="fas fa-reply" style="color: var(--primary);"></i>
+                    <span>Responder mensaje</span>
+                </button>
+                <button id="btn-edit-comment-option" class="btn-action-row" onclick="openCommentEdit()">
+                    <i class="fas fa-edit" style="color: var(--secondary);"></i>
                     <span>Editar mensaje</span>
                 </button>
-                <button class="btn-action-row" onclick="openCommentDeleteConfirm()">
+                <button id="btn-delete-comment-option" class="btn-action-row" onclick="openCommentDeleteConfirm()">
                     <i class="fas fa-trash-alt" style="color: var(--red);"></i>
                     <span>Eliminar mensaje</span>
                 </button>
@@ -548,7 +580,28 @@
         </div>
     </div>
 
-    <script src="../shared/storage.js"></script>
-    <script src="script.js"></script>
+    <!-- Modal para Motivo (Revisión/Rechazo) -->
+    <div id="mobile-modal-motivo" class="mobile-bottom-sheet hidden" style="background: rgba(0,0,0,0.6); z-index: 3200;">
+        <div class="sheet-content" style="height: auto; padding-bottom: 2rem; border-radius: 2rem 2rem 0 0;">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header" style="border: none; padding-bottom: 0;">
+                <h3 id="mobile-motivo-title" style="font-size: 1.5rem; font-weight: 800; color: var(--sidebar-bg);">Indique el motivo</h3>
+                <button class="btn-icon circle"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sheet-body" style="padding-top: 5px;">
+                <p id="mobile-motivo-desc" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">Explique brevemente por qué cambia el estado.</p>
+                <div class="input-group">
+                    <textarea id="mobile-motivo-input" placeholder="Escriba aquí el motivo..." style="height: 120px; border-radius: 1rem; border: 2px solid #f1f5f9; background: #f8fafc; padding: 1rem; font-family: inherit; font-size: 1rem; width: 100%; outline: none; transition: all 0.2s;"></textarea>
+                </div>
+            </div>
+            <div class="sheet-footer" style="display: flex; gap: 12px; padding: 0 1.5rem 1.5rem;">
+                <button id="btn-cancel-motivo-mobile" class="btn-confirm-full" style="background: #f1f5f9; color: var(--text-main); flex: 1; margin: 0;">Cancelar</button>
+                <button id="btn-confirm-motivo-mobile" class="btn-confirm-full" style="background: var(--blue); flex: 1; margin: 0;">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/src/shared/storage.js"></script>
+    <script src="/src/mobile/script.js"></script>
 </body>
 </html>

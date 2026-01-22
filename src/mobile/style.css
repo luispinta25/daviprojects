@@ -422,12 +422,19 @@ main {
 .mobile-bottom-sheet {
     position: fixed;
     inset: 0;
-    background: rgba(7, 26, 64, 0.4);
-    backdrop-filter: blur(8px);
+    background: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(0px);
     display: flex;
     align-items: flex-end;
     z-index: 2000;
-    transition: all 0.3s ease;
+    transition: background 0.3s ease, backdrop-filter 0.3s ease;
+    visibility: hidden;
+}
+
+.mobile-bottom-sheet.active {
+    visibility: visible;
+    background: rgba(7, 26, 64, 0.4);
+    backdrop-filter: blur(8px);
 }
 
 .mobile-bottom-sheet.full-screen .sheet-content {
@@ -440,11 +447,16 @@ main {
     width: 100%;
     border-radius: 2.5rem 2.5rem 0 0;
     padding: 1rem 1.25rem 0.5rem;
-    animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
     height: 95vh;
     display: flex;
     flex-direction: column;
     box-shadow: 0 -10px 40px rgba(0,0,0,0.15);
+    transform: translateY(100%);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mobile-bottom-sheet.active .sheet-content {
+    transform: translateY(0);
 }
 
 .sheet-handle {
@@ -525,7 +537,9 @@ main {
 
 .sheet-body { 
     flex: 1;
-    overflow-y: auto; /* Habilitar scroll en el cuerpo del sheet */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain; /* Evita que el scroll se propague fuera del modal */
     display: flex;
     flex-direction: column;
     padding: 0.5rem 0 1.5rem;
@@ -613,10 +627,10 @@ main {
 
 .task-scrollable-content {
     flex: 1;
-    overflow-y: auto;
     padding: 1rem 0;
     display: flex;
     flex-direction: column;
+    min-height: 0; /* Importante para flex children */
 }
 
 /* Status Selector Elegant */
@@ -715,20 +729,25 @@ main {
 }
 
 /* CHAT / COMENTARIOS OPTIMIZADOS */
-#tab-comments {
+#tab-comments, #tab-check, #tab-ordered {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
 }
 
 .comments-container-mobile {
     flex: 1;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    overscroll-behavior-y: contain;
+    scroll-behavior: smooth;
     margin-bottom: 15px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding-bottom: 20px;
+    padding-bottom: 100px; /* Mas espacio al final para el input */
 }
 
 /* Burbujas de chat elegantes */
@@ -740,7 +759,8 @@ main {
     line-height: 1.4;
     position: relative;
     box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    user-select: none; /* Prevenir selección al pulsar */
+    user-select: none;
+    word-break: break-word; /* Para no romper el scroll horizontal */
 }
 
 .comment-bubble:active {
@@ -760,6 +780,46 @@ main {
     color: #333;
     border-bottom-left-radius: 5px;
 }
+
+/* Burbuja de Respuesta en Móvil */
+.reply-reference-mobile {
+    background: rgba(0,0,0,0.05);
+    border-left: 3px solid var(--primary);
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.4rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.comment-bubble.me .reply-reference-mobile {
+    background: rgba(255,255,255,0.3);
+    border-left-color: white;
+}
+
+.reply-author-mobile { font-weight: 800; display: block; margin-bottom: 1px; }
+.reply-text-mobile { opacity: 0.8; display: -webkit-box; -webkit-line-clamp: 1; line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Preview de Respuesta sobre el Teclado */
+.reply-preview-mobile {
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    animation: mobileSlideUp 0.3s ease-out;
+}
+
+@keyframes mobileSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+.reply-preview-info { border-left: 3px solid var(--primary); padding-left: 0.75rem; overflow: hidden; }
+.reply-preview-info .title { font-weight: 800; font-size: 0.8rem; color: var(--primary); }
+.reply-preview-info .text { font-size: 0.75rem; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.btn-close-reply-mobile { background: none; border: none; font-size: 1.2rem; color: #94a3b8; padding: 0.5rem; }
 
 .comment-meta {
     font-size: 0.75rem;

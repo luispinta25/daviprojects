@@ -54,6 +54,16 @@ const Storage = {
         return data;
     },
 
+    async getTask(taskId) {
+        const { data, error } = await supabaseClient
+            .from('daviprojects_tareas')
+            .select('*')
+            .eq('id', taskId)
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
     async addTask(task) {
         const { data, error } = await supabaseClient
             .from('daviprojects_tareas')
@@ -144,6 +154,9 @@ const Storage = {
             console.error("Error fetching username for history:", e);
         }
 
+        // Notificación Webhook
+        this._notifyWebhook(nombre, log.accion, log.detalle, log.proyecto_id, log.tarea_id);
+
         const { error: insertError } = await supabaseClient
             .from('daviprojects_historial')
             .insert([{
@@ -155,6 +168,74 @@ const Storage = {
                 tarea_id: log.tarea_id || null
             }]);
         if (insertError) console.error("Error al guardar historial:", insertError);
+    },
+
+    async _notifyWebhook(nombre, accion, detalle, proyectoId, tareaId = null) {
+        const url = 'https://lpwebhook.luispinta.com/webhook/daviprojects';
+        
+        // Priorizar el enlace a la tarea si existe
+        let projectLink = '';
+        if (tareaId) {
+            projectLink = `https://daviprojects.luispinta.com/?taskId=${tareaId}`;
+        } else if (proyectoId) {
+            projectLink = `https://daviprojects.luispinta.com/?projectId=${proyectoId}`;
+        }
+        
+        const icons = {
+            'CREAR_PROYECTO': '🚀',
+            'CREAR_TAREA': '�',
+            'CREAR': '✨',
+            'MOVER': '🚚',
+            'ELIMINAR': '🗑️',
+            'ELIMINAR_TAREA': '✖️',
+            'ELIMINAR_PROYECTO': '🧨',
+            'EDITAR': '🛠️',
+            'EDITAR_COMENTARIO': '✏️',
+            'AÑADIR': '➕',
+            'NUEVO_COMENTARIO': '💬',
+            'RESPONDER': '↩️',
+            'REORDENAR': '🔢',
+            'COMPLETAR': '✅',
+            'LOGIN': '🔑',
+            'LOGOUT': '🚪'
+        };
+        const icon = icons[accion] || '🔔';
+
+        const timestamp = new Date().toLocaleString('es-CO', { 
+            timeZone: 'America/Bogota',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+
+        const message = `*DaviProjects* • ${icon} *${accion.replace(/_/g, ' ')}*\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n` +
+                        `👤 *Usuario:* \`${nombre}\`\n\n` +
+                        `${detalle}\n\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n` +
+                        `⏰ _${timestamp}_\n` +
+                        (projectLink ? `🔗 *Ver:* ${projectLink}` : '');
+
+        try {
+            await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    message: message,
+                    user: nombre,
+                    action: accion,
+                    detail: detalle,
+                    timestamp: timestamp,
+                    projectId: proyectoId,
+                    link: projectLink
+                })
+            });
+        } catch (e) {
+            console.error("Error enviando webhook:", e);
+        }
     },
 
     async getHistory(projectId) {
@@ -216,7 +297,8 @@ const Storage = {
                 usuario_id: user.id,
                 usuario_nombre: userDisplayName,
                 archivo_url: element.archivo_url || null,
-                archivo_tipo: element.archivo_tipo || null
+                archivo_tipo: element.archivo_tipo || null,
+                reply_to_id: element.reply_to_id || null
             }])
             .select();
         if (error) throw error;
@@ -249,6 +331,62 @@ const Storage = {
             .update(updates)
             .eq('id', elementId);
         if (error) throw error;
+    },
+
+    async downloadFile(url, fileName, btn = null) {
+        if (btn && btn.getAttribute('data-loading') === 'true') return;
+
+        let originalHTML = '';
+        if (btn) {
+            console.log("Iniciando descarga animada..."); // Debug para el usuario
+            btn.setAttribute('data-loading', 'true');
+            originalHTML = btn.innerHTML;
+            btn.style.pointerEvents = 'none';
+            btn.style.opacity = '0.7';
+
+            // Cambiar icono y texto inmediatamente
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.className = 'fas fa-spinner fa-spin';
+            } else {
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cargando...';
+            }
+        }
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('CORS o Red error');
+            const blob = await response.blob();
+            // ... (el resto sigue igual)
+            const blobUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = fileName || 'archivo-audio';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+            
+            if (btn) {
+                const icon = btn.querySelector('i');
+                if (icon) icon.className = 'fas fa-check';
+                setTimeout(() => {
+                    btn.innerHTML = originalHTML;
+                    btn.style.pointerEvents = 'auto';
+                    btn.style.opacity = '1';
+                    btn.removeAttribute('data-loading');
+                }, 2000);
+            }
+        } catch (error) {
+            console.warn('Download fetch failed, falling back to window.open', error);
+            if (btn) {
+                btn.innerHTML = originalHTML;
+                btn.style.pointerEvents = 'auto';
+                btn.style.opacity = '1';
+                btn.removeAttribute('data-loading');
+            }
+            window.open(url, '_blank');
+        }
     },
 
     async deleteTaskElement(elementId) {
