@@ -25,11 +25,46 @@
         .loading-screen {
             height: 100vh;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             background: #082359;
             color: white;
             font-family: 'Inter', sans-serif;
+            position: relative;
+        }
+
+        .spinner-loading {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #05A64B;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .powered-by-loading {
+            position: absolute;
+            bottom: 50px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            opacity: 0.65;
+        }
+        .powered-by-loading span {
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: rgba(255,255,255,0.7);
+            text-transform: uppercase;
+        }
+        .powered-by-loading img {
+            height: 26px;
+            width: auto;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
         }
     </style>
     <script>
@@ -114,9 +149,18 @@
 </head>
 <body>
     <div id="loading" class="loading-screen">
-        <div>Cargando...</div>
+        <div class="spinner-loading"></div>
+        <div style="font-weight: 500; letter-spacing: 0.5px; opacity: 0.8;">Cargando...</div>
+        
+        <div class="powered-by-loading">
+            <span>Powered by</span>
+            <img src="../../img/budalogo.webp" alt="BUDA Logo">
+        </div>
     </div>
     <div id="app">
+        <button id="btn-fab-project" class="fab-project hidden" title="Nuevo Proyecto">
+            <i class="fas fa-plus"></i>
+        </button>
         <div id="main-container">
             <aside class="sidebar closed" id="sidebar">
                 <div class="sidebar-top">
@@ -129,11 +173,14 @@
                         <h2>Menú Principal</h2>
                     </div>
                     <ul class="sidebar-nav">
-                        <li onclick="showGallery()" id="nav-dashboard" class="active">
+                        <li id="nav-dashboard" class="active">
                             <i class="fas fa-chart-line"></i> Dashboard
                         </li>
-                        <li onclick="showFullProjectsView()" id="nav-projects">
+                        <li id="nav-projects">
                             <i class="fas fa-folder-open"></i> Proyectos
+                        </li>
+                        <li id="nav-ideas">
+                            <i class="fas fa-lightbulb"></i> Ideas
                         </li>
                     </ul>
                     <div class="sidebar-header" style="margin-top: 1.5rem;">
@@ -143,6 +190,12 @@
                     <ul id="project-list">
                         <!-- Projects will be loaded here -->
                     </ul>
+                </div>
+                <div class="sidebar-footer">
+                    <div class="powered-by-sidebar">
+                        <span>Powered by</span>
+                        <img src="../../img/budalogo.webp" alt="BUDA Logo">
+                    </div>
                 </div>
             </aside>
 
@@ -191,6 +244,13 @@
                     </div>
 
                     <div class="metrics-grid">
+                        <div id="btn-dashboard-new-idea" class="metric-card" style="cursor: pointer; border: 2px dashed #05A64B; background: #f0fdf4;">
+                            <div class="metric-icon success" style="background: #05A64B; color: white;"><i class="fas fa-plus"></i></div>
+                            <div class="metric-info">
+                                <span class="metric-label" style="color: #05A64B; font-weight: 700;">NUEVA IDEA</span>
+                                <span class="metric-value">Anotar</span>
+                            </div>
+                        </div>
                         <div class="metric-card">
                             <div class="metric-icon"><i class="fas fa-folder"></i></div>
                             <div class="metric-info">
@@ -223,7 +283,7 @@
 
                     <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
                         <h3>Próximos a Vencer</h3>
-                        <button onclick="showFullProjectsView()" class="btn-view-all" style="background: none; border: 1px solid var(--primary); color: var(--primary); padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer; font-weight: 600; font-size: 0.8rem; transition: all 0.2s;">
+                        <button id="btn-view-all-projects" class="btn-view-all" style="background: none; border: 1px solid var(--primary); color: var(--primary); padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer; font-weight: 600; font-size: 0.8rem; transition: all 0.2s;">
                             Ver todos los proyectos <i class="fas fa-arrow-right" style="margin-left: 5px;"></i>
                         </button>
                     </div>
@@ -236,6 +296,41 @@
                 <section id="projects-view" class="view hidden">
                     <div id="full-project-gallery" class="project-gallery">
                         <!-- All project cards will be rendered here -->
+                    </div>
+                </section>
+
+                <section id="ideas-view" class="view hidden">
+                    <div class="dashboard-header">
+                        <div class="brand-badge">
+                            <i class="fas fa-lightbulb" style="color: #fbbf24;"></i>
+                            <span>Banco de Ideas</span>
+                        </div>
+                        <div class="welcome-text">
+                            <h2>Tus Chispazos de Creatividad</h2>
+                            <p>Convierte tus pensamientos en proyectos reales.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="ideas-container">
+                        <div class="ideas-section">
+                            <div class="ideas-grid" id="ideas-fav-grid">
+                                <!-- Favorite ideas here -->
+                            </div>
+                        </div>
+
+                        <div class="ideas-section" style="margin-top: 2rem;">
+                            <h3 id="label-other-ideas" style="margin-bottom: 1.5rem; color: var(--text-muted); font-size: 0.9rem; letter-spacing: 1px; display: none;">OTRAS IDEAS</h3>
+                            <div class="ideas-grid" id="ideas-main-grid">
+                                <!-- Regular ideas here -->
+                            </div>
+                        </div>
+
+                        <div class="ideas-section" style="margin-top: 4rem; opacity: 0.7;">
+                            <h3 id="label-converted-ideas" style="margin-bottom: 1.5rem; color: var(--text-muted); font-size: 0.9rem; letter-spacing: 1px; display: none;">PROYECTOS CREADOS</h3>
+                            <div class="ideas-grid" id="ideas-converted-grid">
+                                <!-- Converted ideas here -->
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -295,6 +390,73 @@
     </div>
 
     <!-- Modals -->
+    <div id="modal-idea" class="modal hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <button class="modal-close-corner close-modal" title="Cerrar"><i class="fas fa-times"></i></button>
+            <div class="modal-priority-banner" style="background: #fbbf24;"></div>
+            
+            <div style="padding: 2.5rem;">
+                <h3 id="idea-modal-title" style="font-size: 1.5rem; color: #0f172a; margin-bottom: 0.5rem;">Anota tu Idea</h3>
+                <p id="idea-modal-desc" style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem;">Captúrala rápido antes de que se escape.</p>
+                
+                <!-- STEP 1: Capture -->
+                <div id="idea-step-1">
+                    <div class="view-switch" style="margin-bottom: 1.25rem; justify-content: flex-start; gap: 0.5rem;">
+                        <button id="btn-mode-text" class="active">Texto</button>
+                        <button id="btn-mode-voice">Voz</button>
+                    </div>
+
+                    <div id="idea-text-box" class="form-group" style="margin-bottom: 1.5rem;">
+                        <textarea id="idea-content" placeholder="¿Qué tienes en mente? Escríbelo aquí..." rows="6" style="width: 100%; padding: 1rem 1.25rem; border-radius: 1rem; border: 2px solid #f1f5f9; font-size: 1.1rem; outline: none; resize: none; font-family: inherit; background: #fffcf0; transition: all 0.2s;"></textarea>
+                    </div>
+
+                    <div id="idea-voice-box" class="form-group hidden" style="margin-bottom: 1.5rem;">
+                        <div id="idea-rec-container" style="background: #f8fafc; border-radius: 1rem; padding: 1.5rem; display: flex; flex-direction: column; align-items: center; gap: 1rem; border: 2px dashed #cbd5e1;">
+                            <div id="idea-rec-timer" style="font-family: monospace; font-size: 1.5rem; color: #64748b;">00:00</div>
+                            <div style="display: flex; gap: 1rem;">
+                                <button id="btn-idea-rec" class="btn-rec" style="width: 60px; height: 60px; border-radius: 50%; background: #ef4444; color: white; border: none; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);"><i class="fas fa-microphone"></i></button>
+                                <button id="btn-idea-stop" class="hidden" style="width: 60px; height: 60px; border-radius: 50%; background: #0f172a; color: white; border: none; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center;"><i class="fas fa-stop"></i></button>
+                            </div>
+                            <div id="idea-audio-preview" class="hidden" style="width: 100%;">
+                                <audio id="audio-idea-play" controls style="width: 100%;"></audio>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="btn-idea-next" style="width: 100%; background: #0f172a; color: white; border: none; padding: 1rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                        Siguiente <i class="fas fa-arrow-right"></i>
+                    </button>
+                </div>
+
+                <!-- STEP 2: Title -->
+                <div id="idea-step-2" class="hidden">
+                    <div class="form-group" style="margin-bottom: 2rem;">
+                        <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.75rem; letter-spacing: 0.05em;">Ponle un título a tu idea</label>
+                        <input type="text" id="idea-title" placeholder="Ej. Idea para el nuevo canal" style="width: 100%; padding: 1rem 1.25rem; border-radius: 0.85rem; border: 2px solid #0f172a; font-size: 1.1rem; outline: none; background: white;">
+                    </div>
+
+                    <div style="display: flex; gap: 1rem;">
+                        <button id="btn-idea-back" style="flex: 0.4; background: #f1f5f9; color: #64748b; border: none; padding: 1rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer;">Atrás</button>
+                        <button id="save-idea" style="flex: 1; background: #fbbf24; color: #082359; border: none; padding: 1rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; box-shadow: 0 4px 6px -1px rgba(251, 191, 36, 0.3);">
+                            <i class="fas fa-save"></i> Guardar Chispazo
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Cargando con Frases -->
+    <div id="modal-loading" class="modal hidden" style="z-index: 9999; background: rgba(15, 23, 42, 0.9);">
+        <div style="text-align: center; color: white; padding: 2rem; max-width: 500px;">
+            <div class="spinner" style="margin: 0 auto 2rem; border-top-color: var(--primary);"></div>
+            <h3 id="loading-quote-title" style="font-size: 1.2rem; margin-bottom: 1rem; color: var(--primary);">"Cualquier cosa que valga la pena hacer, vale la pena hacerla bien."</h3>
+            <p id="loading-quote-author" style="font-size: 0.9rem; opacity: 0.7; font-style: italic;">– Lord Chesterfield</p>
+            <p style="margin-top: 2rem; font-size: 0.8rem; letter-spacing: 0.2em; text-transform: uppercase; color: #64748b;">Procesando ...</p>
+        </div>
+    </div>
+
+    <!-- Modals Existentes -->
     <div id="modal-project" class="modal hidden">
         <div class="modal-content" style="max-width: 550px;">
             <button class="modal-close-corner close-modal" title="Cerrar"><i class="fas fa-times"></i></button>
@@ -322,6 +484,101 @@
                 <div class="modal-actions" style="justify-content: flex-end; gap: 1rem;">
                     <button class="close-modal" style="background: #f1f5f9; color: #64748b; border: none; padding: 0.85rem 1.5rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s;">Cancelar</button>
                     <button id="save-project" style="background: var(--primary); color: white; border: none; padding: 0.85rem 2rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);">Crear Proyecto</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Detalles de Proyecto -->
+    <div id="modal-project-details" class="modal hidden">
+        <div class="modal-content" style="max-width: 650px;">
+            <button class="modal-close-corner close-modal" title="Cerrar"><i class="fas fa-times"></i></button>
+            <div id="details-project-banner" class="modal-priority-banner" style="background: var(--primary);"></div>
+            
+            <div style="padding: 2.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3 id="details-project-name" style="font-size: 1.75rem; color: #0f172a; margin-bottom: 0.25rem;">Proyecto</h3>
+                        <div id="details-project-status" class="project-badge">Activo</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <span id="details-project-progress-text" style="font-size: 1.5rem; font-weight: 800; color: var(--primary);">0%</span>
+                        <p style="font-size: 0.7rem; color: var(--text-muted); margin: 0;">COMPLETADO</p>
+                    </div>
+                </div>
+
+                <div class="details-section" style="margin-bottom: 2rem;">
+                    <label style="display: block; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.1em;">Descripción</label>
+                    <p id="details-project-desc" style="font-size: 1rem; color: #334155; line-height: 1.6; background: #f8fafc; padding: 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; min-height: 40px; margin-bottom: 1rem;">Sin descripción.</p>
+                    
+                    <!-- Reproductor de Audio (Se muestra si hay URL) -->
+                    <div id="details-project-audio-container" class="hidden">
+                        <div class="project-details-audio">
+                            <div class="audio-main-controls">
+                                <button id="btn-audio-details-play" class="btn-audio-main">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                
+                                <div class="audio-timeline-container">
+                                    <input type="range" id="audio-details-timeline" class="audio-timeline-slider" value="0" min="0" step="0.1">
+                                    <div class="audio-time-info">
+                                        <span id="audio-details-current">00:00</span>
+                                        <span id="audio-details-duration">00:00</span>
+                                    </div>
+                                </div>
+
+                                <div class="audio-volume-container">
+                                    <i class="fas fa-volume-up" id="icon-audio-details-volume"></i>
+                                    <input type="range" id="audio-details-volume" class="volume-slider" value="100" min="0" max="100">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2.5rem;">
+                    <div>
+                        <label style="display: block; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.1em;">Cronograma</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.9rem;">
+                                <i class="fas fa-calendar-plus" style="color: #64748b;"></i>
+                                <div>
+                                    <span style="display: block; font-size: 0.65rem; color: #94a3b8; font-weight: 700;">INICIO</span>
+                                    <span id="details-project-start">--/--/----</span>
+                                </div>
+                            </div>
+                            <div id="details-project-due-container" style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.9rem;">
+                                <i class="fas fa-calendar-check" style="color: #ef4444;"></i>
+                                <div>
+                                    <span style="display: block; font-size: 0.65rem; color: #ef4444; font-weight: 700;">VENCIMIENTO</span>
+                                    <span id="details-project-due">--/--/----</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.1em;">Estadísticas</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;" id="details-project-stats">
+                            <!-- Stats here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Barra de progreso grande -->
+                <div style="margin-bottom: 2.5rem;">
+                     <div style="width: 100%; height: 12px; background: #f1f5f9; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0;">
+                        <div id="details-project-progress-bar" style="width: 0%; height: 100%; background: var(--primary); border-radius: 10px; transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);"></div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <button class="btn-secondary close-modal" style="flex: 1; padding: 1rem;">Volver</button>
+                    <button id="btn-details-open-kanban" style="flex: 1.5; background: var(--primary); color: white; border: none; padding: 1rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.75rem; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25); transition: all 0.2s;">
+                        <i class="fas fa-external-link-alt"></i> ABRIR TABLERO DE CONTROL
+                    </button>
+                    <button id="btn-details-delete" class="btn-logout-circle" style="width: 50px; height: 50px; border-radius: 0.85rem; flex-shrink: 0; margin-left: 0;" title="Eliminar Proyecto">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
                 </div>
             </div>
         </div>

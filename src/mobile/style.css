@@ -1028,3 +1028,55 @@ main {
     opacity: 0.9 !important;
     transform: rotate(2deg);
 }
+
+/* Banner de PWA para Safari iOS */
+.ios-pwa-banner {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+    padding: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    z-index: 10000;
+    animation: slideUp 0.5s ease-out;
+    border: 1px solid rgba(0,0,0,0.05);
+}
+
+.ios-pwa-banner img {
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+}
+
+.ios-pwa-banner .banner-text {
+    flex: 1;
+}
+
+.ios-pwa-banner .banner-text h4 {
+    color: var(--text-main);
+    font-size: 0.9rem;
+    margin-bottom: 2px;
+}
+
+.ios-pwa-banner .banner-text p {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.2;
+}
+
+.ios-pwa-banner .banner-close {
+    font-size: 1.2rem;
+    color: var(--text-muted);
+    padding: 5px;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(100px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}

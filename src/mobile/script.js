@@ -93,6 +93,24 @@ async function initMobile() {
 
     document.getElementById('save-task-mobile').onclick = handleSaveTask;
     
+    // --- LÓGICA DE BANNER iOS (Si viene de Safari) ---
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('safari') === '1') {
+        const banner = document.createElement('div');
+        banner.className = 'ios-pwa-banner';
+        banner.innerHTML = `
+            <img src="/img/logo.webp" alt="Logo">
+            <div class="banner-text">
+                <h4>Instalar DaviProjects</h4>
+                <p>Pulsa el botón <i class="fa-solid fa-arrow-up-from-bracket"></i> y luego <b>"Añadir a la pantalla de inicio"</b> para usarla como App.</p>
+            </div>
+            <div class="banner-close" onclick="this.parentElement.remove()"><i class="fas fa-times"></i></div>
+        `;
+        document.body.appendChild(banner);
+        // Autocerrar en 15 segundos
+        setTimeout(() => banner.remove(), 15000);
+    }
+    
     // Tabs de detalle
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.onclick = () => {

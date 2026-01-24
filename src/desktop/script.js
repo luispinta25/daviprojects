@@ -18,6 +18,368 @@ const STATUS_NAMES = {
 
 // --- AUTO-SCROLL HORIZONTAL ---
 let autoScrollInterval = null;
+
+
+// --- IDEAS LOGIC ---
+let ideas = [];
+let currentIdeaAudioBlob = null;
+let ideaRecorder = null;
+let ideaAudioChunks = [];
+let ideaTimerInterval = null;
+
+async function showIdeasView() {
+    currentProject = null;
+    document.getElementById('current-project-name').textContent = "Banco de Ideas";
+    
+    // UI Navigation
+    document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+    const ideasView = document.getElementById('ideas-view');
+    if (ideasView) ideasView.classList.remove('hidden');
+    
+    document.getElementById('view-controls')?.classList.add('hidden');
+    document.getElementById('sidebar')?.classList.add('closed');
+    document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
+    document.getElementById('nav-ideas')?.classList.add('active');
+
+    // FAB: Mostrar en ideas también
+    const fab = document.getElementById('btn-fab-project');
+    if (fab) fab.classList.remove('hidden');
+
+    await loadIdeas();
+}
+
+async function loadIdeas() {
+    try {
+        ideas = await Storage.getIdeas();
+        renderIdeas();
+    } catch (error) {
+        console.error("Error loading ideas:", error);
+    }
+}
+
+function renderIdeas() {
+    const favGrid = document.getElementById('ideas-fav-grid');
+    const mainGrid = document.getElementById('ideas-main-grid');
+    const convGrid = document.getElementById('ideas-converted-grid');
+    const labelOther = document.getElementById('label-other-ideas');
+    const labelConv = document.getElementById('label-converted-ideas');
+
+    if (!favGrid || !mainGrid) return;
+
+    favGrid.innerHTML = '';
+    mainGrid.innerHTML = '';
+    convGrid.innerHTML = '';
+
+    const favs = ideas.filter(i => i.es_favorito && !i.proyecto_id);
+    const regular = ideas.filter(i => !i.es_favorito && !i.proyecto_id);
+    const converted = ideas.filter(i => i.proyecto_id);
+
+    if (labelOther) labelOther.style.display = (favs.length > 0 && regular.length > 0) ? 'block' : 'none';
+    if (labelConv) labelConv.style.display = (converted.length > 0) ? 'block' : 'none';
+
+    favs.forEach(idea => favGrid.appendChild(createIdeaCard(idea)));
+    regular.forEach(idea => mainGrid.appendChild(createIdeaCard(idea)));
+    converted.forEach(idea => convGrid.appendChild(createIdeaCard(idea)));
+}
+
+function createIdeaCard(idea) {
+    const card = document.createElement('div');
+    card.className = `idea-card ${idea.proyecto_id ? 'converted' : ''}`;
+    card.style.background = idea.color || '#fff9c4';
+
+    let contentHtml = '';
+    if (idea.audio_url) {
+        contentHtml = `
+            <div class="idea-audio-box" onclick="event.stopPropagation();">
+                <button class="idea-audio-play-btn" onclick="playIdeaAudio(this, '${idea.audio_url}')" title="Escuchar">
+                    <i class="fas fa-play"></i>
+                </button>
+                <div class="idea-audio-wave"><div class="idea-audio-progress"></div></div>
+            </div>
+            ${idea.contenido ? `<div class="idea-body">${idea.contenido}</div>` : ''}
+        `;
+    } else {
+        contentHtml = `<div class="idea-body">${idea.contenido || 'Sin contenido'}</div>`;
+    }
+
+    card.innerHTML = `
+        ${idea.proyecto_id ? '<div class="converted-badge">PROYECTO</div>' : ''}
+        <div class="idea-card-header">
+            <h4>${idea.titulo || 'Sin Título'}</h4>
+            <button class="idea-fav-btn ${idea.es_favorito ? 'active' : ''}" onclick="event.stopPropagation(); toggleIdeaFav('${idea.id}')">
+                <i class="${idea.es_favorito ? 'fas' : 'far'} fa-star"></i>
+            </button>
+        </div>
+        ${contentHtml}
+        <div class="idea-footer">
+            <div class="idea-actions">
+                ${!idea.proyecto_id ? `
+                    <button class="btn-idea-action delete" onclick="event.stopPropagation(); deleteIdea('${idea.id}')" title="Eliminar Pensamiento">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                ` : `
+                    <button class="btn-idea-action" style="opacity:0.3; cursor:not-allowed;" title="No se puede eliminar porque ya es un proyecto">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                `}
+            </div>
+            ${!idea.proyecto_id ? `
+                <button class="btn-convert-idea" onclick="event.stopPropagation(); prepareConversion('${idea.id}')">
+                    <i class="fas fa-rocket"></i> Crear Proyecto
+                </button>
+            ` : ''}
+        </div>
+    `;
+    return card;
+}
+
+function playIdeaAudio(btn, url) {
+    const card = btn.closest('.idea-card');
+    const progressBar = card.querySelector('.idea-audio-progress');
+    const icon = btn.querySelector('i');
+
+    if (window.activeAudio && window.activeAudio.src === url) {
+        if (window.activeAudio.paused) {
+            window.activeAudio.play();
+            icon.className = 'fas fa-pause';
+        } else {
+            window.activeAudio.pause();
+            icon.className = 'fas fa-play';
+        }
+    } else {
+        if (window.activeAudio) window.activeAudio.pause();
+        document.querySelectorAll('.idea-audio-play-btn i').forEach(i => i.className = 'fas fa-play');
+
+        window.activeAudio = new Audio(url);
+        window.activeAudio.play();
+        icon.className = 'fas fa-pause';
+
+        window.activeAudio.ontimeupdate = () => {
+            const prog = (window.activeAudio.currentTime / window.activeAudio.duration) * 100;
+            if (progressBar) progressBar.style.width = `${prog}%`;
+        };
+
+        window.activeAudio.onended = () => {
+            icon.className = 'fas fa-play';
+            if (progressBar) progressBar.style.width = '0%';
+        };
+    }
+}
+
+function openIdeaModal() {
+    const modal = document.getElementById('modal-idea');
+    if (modal) {
+        modal.classList.remove('hidden');
+        resetIdeaForm();
+    }
+}
+
+function resetIdeaForm() {
+    document.getElementById('idea-title').value = '';
+    document.getElementById('idea-content').value = '';
+    currentIdeaAudioBlob = null;
+    document.getElementById('idea-audio-preview')?.classList.add('hidden');
+    toggleIdeaMode('text');
+
+    // Reset a Paso 1
+    document.getElementById('idea-step-1')?.classList.remove('hidden');
+    document.getElementById('idea-step-2')?.classList.add('hidden');
+    const title = document.getElementById('idea-modal-title');
+    const desc = document.getElementById('idea-modal-desc');
+    if (title) title.textContent = "Anota tu Idea";
+    if (desc) desc.textContent = "Captúrala rápido antes de que se escape.";
+}
+
+function toggleIdeaMode(mode) {
+    const btnText = document.getElementById('btn-mode-text');
+    const btnVoice = document.getElementById('btn-mode-voice');
+    const boxText = document.getElementById('idea-text-box');
+    const boxVoice = document.getElementById('idea-voice-box');
+
+    if (mode === 'text') {
+        if(btnText) btnText.classList.add('active');
+        if(btnVoice) btnVoice.classList.remove('active');
+        if(boxText) boxText.classList.remove('hidden');
+        if(boxVoice) boxVoice.classList.add('hidden');
+    } else {
+        if(btnText) btnText.classList.remove('active');
+        if(btnVoice) btnVoice.classList.add('active');
+        if(boxText) boxText.classList.add('hidden');
+        if(boxVoice) boxVoice.classList.remove('hidden');
+    }
+}
+
+function initIdeasListeners() {
+    const b1 = document.getElementById('btn-mode-text');
+    const b2 = document.getElementById('btn-mode-voice');
+    if (b1) b1.onclick = () => toggleIdeaMode('text');
+    if (b2) b2.onclick = () => toggleIdeaMode('voice');
+
+    // Navegación de pasos
+    document.getElementById('btn-idea-next')?.addEventListener('click', () => {
+        const contenido = document.getElementById('idea-content').value.trim();
+        if (!contenido && !currentIdeaAudioBlob) {
+            return showCustomAlert("¿Qué tienes en mente?", "Cuéntanos un poco sobre tu idea primero.", "warning");
+        }
+        document.getElementById('idea-step-1')?.classList.add('hidden');
+        document.getElementById('idea-step-2')?.classList.remove('hidden');
+        const title = document.getElementById('idea-modal-title');
+        const desc = document.getElementById('idea-modal-desc');
+        if (title) title.textContent = "Casi listo...";
+        if (desc) desc.textContent = "Dale un nombre a este pensamiento.";
+        document.getElementById('idea-title')?.focus();
+    });
+
+    document.getElementById('btn-idea-back')?.addEventListener('click', () => {
+        document.getElementById('idea-step-1')?.classList.remove('hidden');
+        document.getElementById('idea-step-2')?.classList.add('hidden');
+        const title = document.getElementById('idea-modal-title');
+        const desc = document.getElementById('idea-modal-desc');
+        if (title) title.textContent = "Anota tu Idea";
+        if (desc) desc.textContent = "Captúrala rápido antes de que se escape.";
+    });
+
+    // Dashboard shortcut
+    const btnDash = document.getElementById('btn-dashboard-new-idea');
+    if (btnDash) btnDash.onclick = () => openIdeaModal();
+
+    const btnRec = document.getElementById('btn-idea-rec');
+    const btnStop = document.getElementById('btn-idea-stop');
+
+    if (btnRec) btnRec.onclick = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            ideaRecorder = new MediaRecorder(stream);
+            ideaAudioChunks = [];
+            ideaRecorder.ondataavailable = e => ideaAudioChunks.push(e.data);
+            ideaRecorder.onstop = () => {
+                currentIdeaAudioBlob = new Blob(ideaAudioChunks, { type: 'audio/webm' });
+                const url = URL.createObjectURL(currentIdeaAudioBlob);
+                const audioPlay = document.getElementById('audio-idea-play');
+                if (audioPlay) audioPlay.src = url;
+                document.getElementById('idea-audio-preview')?.classList.remove('hidden');
+            };
+            ideaRecorder.start();
+            btnRec.classList.add('hidden');
+            btnStop.classList.remove('hidden');
+            let secs = 0;
+            const timerEl = document.getElementById('idea-rec-timer');
+            if (timerEl) {
+                timerEl.style.color = '#ef4444';
+                ideaTimerInterval = setInterval(() => {
+                    secs++;
+                    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+                    const s = (secs % 60).toString().padStart(2, '0');
+                    timerEl.textContent = `${m}:${s}`;
+                }, 1000);
+            }
+        } catch (err) { showCustomAlert("Error de Acceso", "No se pudo acceder al micrófono. Verifica los permisos.", "error"); }
+    };
+
+    if (btnStop) btnStop.onclick = () => {
+        if (ideaRecorder) {
+            ideaRecorder.stop();
+            ideaRecorder.stream.getTracks().forEach(t => t.stop());
+        }
+        btnRec.classList.remove('hidden');
+        btnStop.classList.add('hidden');
+        if (ideaTimerInterval) clearInterval(ideaTimerInterval);
+        const timerEl = document.getElementById('idea-rec-timer');
+        if (timerEl) timerEl.style.color = '#64748b';
+    };
+
+    const btnSave = document.getElementById('save-idea');
+    if (btnSave) btnSave.onclick = async () => {
+        const titulo = document.getElementById('idea-title').value;
+        const contenido = document.getElementById('idea-content').value;
+        if (!titulo) return showCustomAlert("Título Requerido", "Por favor, ponle un título a tu idea.", "warning");
+        
+        btnSave.disabled = true;
+        btnSave.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
+
+        try {
+            let audio_url = null;
+            if (currentIdeaAudioBlob) {
+                const fileName = `idea_${Date.now()}.webm`;
+                // Usamos Storage.uploadFile para ser consistentes con el bucket correcto (luispintapersonal)
+                try {
+                    audio_url = await Storage.uploadFile(currentIdeaAudioBlob, `ideas/${fileName}`);
+                } catch (uploadError) {
+                    console.error("Error subiendo audio:", uploadError);
+                    throw new Error("No se pudo subir el audio. Verifica el bucket de almacenamiento.");
+                }
+            }
+
+            await Storage.addIdea({ 
+                titulo, 
+                contenido: contenido || "", 
+                audio_url 
+            });
+
+            // Limpiar y cerrar
+            resetIdeaForm();
+            closeModals();
+            loadIdeas();
+            
+            if (typeof showCustomAlert === 'function') {
+                showCustomAlert("¡Chispazo Guardado!", "Tu idea se ha guardado correctamente en el banco.", "success");
+            }
+        } catch (e) { 
+            console.error("Error completo:", e);
+            showCustomAlert("Error de Conexión", "No se pudo guardar el chispazo. Revisa tu conexión.", "error"); 
+        } finally { 
+            btnSave.disabled = false; 
+            btnSave.innerHTML = '<i class="fas fa-save"></i> Guardar Chispazo'; 
+        }
+    };
+}
+
+async function toggleIdeaFav(id) {
+    const idea = ideas.find(i => i.id === id);
+    if (!idea) return;
+    try {
+        const newStatus = !idea.es_favorito;
+        await Storage.updateIdea(id, { es_favorito: newStatus });
+        idea.es_favorito = newStatus;
+        renderIdeas();
+    } catch (e) { console.error(e); }
+}
+
+async function deleteIdea(id) {
+    const idea = ideas.find(i => i.id === id);
+    if (idea && idea.proyecto_id) {
+        return showCustomAlert("Acción Denegada", "Este chispazo ya es un proyecto real. No puedes eliminarlo para mantener el historial del proyecto.", "warning");
+    }
+
+    if (await showCustomConfirm("Eliminar Chispazo", "¿Estás seguro de eliminar este chispazo de forma permanente?", "danger")) {
+        try {
+            showLoading();
+            await Storage.deleteIdea(id);
+            ideas = ideas.filter(i => i.id !== id);
+            renderIdeas();
+            hideLoading();
+            showCustomAlert("Eliminado", "La idea ha sido borrada.", "success");
+        } catch (e) { 
+            hideLoading();
+            console.error(e);
+            showCustomAlert("Error", "No se pudo eliminar la idea.", "error");
+        }
+    }
+}
+
+async function prepareConversion(ideaId) {
+    const idea = ideas.find(i => i.id === ideaId);
+    if (!idea) return;
+    document.getElementById('new-project-name').value = idea.titulo;
+    document.getElementById('new-project-desc').value = (idea.contenido || '') + (idea.audio_url ? `\n[Audio: ${idea.audio_url}]` : '');
+    window.convertingIdeaId = ideaId;
+    document.getElementById('modal-project').classList.remove('hidden');
+}
+
+// Iniciar listeners
+initIdeasListeners();
+
+
 const boardContainer = document.querySelector('.board');
 
 document.addEventListener('dragover', (e) => {
@@ -165,6 +527,19 @@ async function showApp() {
         document.getElementById('sidebar').classList.add('closed');
     };
 
+    // Sidebar Navigation
+    document.getElementById('nav-dashboard').onclick = showGallery;
+    document.getElementById('nav-ideas').onclick = showIdeasView;
+    document.getElementById('nav-projects').onclick = showFullProjectsView;
+    if (document.getElementById('nav-notes')) {
+        document.getElementById('nav-notes').onclick = () => showCustomAlert("Próximamente", "La sección de Notas Rápidas estará disponible en la siguiente actualización.", "info");
+    }
+
+    initIdeasListeners();
+
+    const btnAll = document.getElementById('btn-view-all-projects');
+    if (btnAll) btnAll.onclick = showFullProjectsView;
+
     // Home & Logout
     document.getElementById('btn-home').onclick = showGallery;
     document.getElementById('btn-logout').onclick = async () => {
@@ -242,6 +617,10 @@ async function showGallery() {
     currentProject = null;
     document.getElementById('current-project-name').textContent = "Dashboard";
     
+    // FAB: Ocultar en el Dashboard
+    const fab = document.getElementById('btn-fab-project');
+    if (fab) fab.classList.add('hidden');
+
     // Ocultar todas las vistas y mostrar el dashboard
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
     document.getElementById('gallery-view').classList.remove('hidden');
@@ -262,6 +641,10 @@ async function showFullProjectsView() {
     currentProject = null;
     document.getElementById('current-project-name').textContent = "Todos los Proyectos";
     
+    // FAB: Mostrar para añadir proyectos
+    const fab = document.getElementById('btn-fab-project');
+    if (fab) fab.classList.remove('hidden');
+
     // Ocultar todas las vistas y mostrar la de proyectos
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
     document.getElementById('projects-view').classList.remove('hidden');
@@ -343,10 +726,11 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
 
         const card = document.createElement('div');
         card.className = 'project-card';
+        card.setAttribute('data-id', project.id);
         card.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 0.75rem;">
                 <h3 style="margin:0; font-size: 1.1rem; color: var(--primary);">${project.nombre || project.name}</h3>
-                <i class="fas fa-trash-alt" style="color:#cbd5e1; cursor:pointer;" onclick="event.stopPropagation(); deleteProject('${project.id}')" title="Eliminar Proyecto"></i>
+                <div class="project-badge ${progress === 100 ? 'status-done' : 'status-active'}">${progress === 100 ? 'Finalizado' : 'Activo'}</div>
             </div>
             
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 2.4rem;">
@@ -366,7 +750,7 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
                 ` : ''}
             </div>
 
-            <div class="project-progress-container" style="margin-bottom: 1.5rem;">
+            <div class="project-progress-container" style="margin-bottom: 1.1rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
                     <span style="font-size: 0.75rem; font-weight: 700; color: #64748b;">PROGRESO</span>
                     <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary);">${progress}%</span>
@@ -374,19 +758,206 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
                 <div style="width: 100%; height: 6px; background: #f1f5f9; border-radius: 10px; overflow: hidden;">
                     <div style="width: ${progress}%; height: 100%; background: var(--primary); border-radius: 10px; transition: width 0.5s ease-out;"></div>
                 </div>
-                <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.4rem;">
-                    ${completedTasks} de ${totalTasks} tareas completadas
-                </div>
             </div>
 
             <div style="margin-top: auto; display:flex; justify-content:space-between; align-items:center;">
-                <span class="btn-view-details">VER DETALLES <i class="fas fa-arrow-right"></i></span>
-                <div class="project-badge">${progress === 100 ? 'Finalizado' : 'Activo'}</div>
+                <span class="btn-view-details" style="font-size: 0.75rem; font-weight: 800; color: var(--primary); cursor: pointer; display: flex; align-items: center; gap: 0.4rem;">
+                    VER DETALLES <i class="fas fa-chevron-right" style="font-size: 0.6rem;"></i>
+                </span>
+                <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600;">
+                    ${completedTasks}/${totalTasks} Tareas
+                </span>
             </div>
         `;
-        card.onclick = () => selectProject(project);
+        card.onclick = () => showProjectDetails(project, allTasks);
         gallery.appendChild(card);
     });
+}
+
+async function showProjectDetails(project, allTasks = []) {
+    currentProject = project;
+    const modal = document.getElementById('modal-project-details');
+    if (!modal) return;
+
+    // Poblar datos
+    const descEl = document.getElementById('details-project-desc');
+    const audioContainer = document.getElementById('details-project-audio-container');
+    
+    let description = project.descripcion || 'Sin descripción.';
+    let audioUrl = null;
+
+    // Detectar si hay patrón de audio en la descripción: [Audio: URL]
+    const audioMatch = description.match(/\[Audio:\s*(https?:\/\/[^\]\s]+)\]/);
+    if (audioMatch) {
+        audioUrl = audioMatch[1];
+        // Limpiar la descripción del tag de audio para mostrar solo el texto
+        description = description.replace(audioMatch[0], '').trim();
+    }
+
+    descEl.textContent = description || 'Sin descripción adicional.';
+    document.getElementById('details-project-name').textContent = project.nombre || project.name;
+    document.getElementById('details-project-start').textContent = new Date(project.created_at).toLocaleDateString();
+    
+    // Manejo de Audio Player
+    if (audioUrl) {
+        audioContainer.classList.remove('hidden');
+        setupProjectAudioPlayer(audioUrl);
+    } else {
+        audioContainer.classList.add('hidden');
+        if (window.projectAudio) {
+            window.projectAudio.pause();
+            window.projectAudio = null;
+        }
+    }
+
+    const dueEl = document.getElementById('details-project-due');
+    const dueContainer = document.getElementById('details-project-due-container');
+    if (project.fecha_vencimiento) {
+        dueEl.textContent = new Date(project.fecha_vencimiento).toLocaleDateString();
+        dueContainer.style.display = 'flex';
+    } else {
+        dueContainer.style.display = 'none';
+    }
+
+    // Calcular estadísticas
+    const pTasks = allTasks.filter(t => t.proyecto_id === project.id && ['TODO', 'DOING', 'DONE', 'REVIEW', 'REJECTED'].includes(t.estado));
+    const total = pTasks.length;
+    const completed = pTasks.filter(t => t.estado === 'DONE' || t.completada).length;
+    const inProgress = pTasks.filter(t => t.estado === 'DOING').length;
+    const pending = pTasks.filter(t => t.estado === 'TODO').length;
+    const review = pTasks.filter(t => t.estado === 'REVIEW').length;
+    
+    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    document.getElementById('details-project-progress-text').textContent = `${progress}%`;
+    document.getElementById('details-project-progress-bar').style.width = `${progress}%`;
+    
+    const statusBadge = document.getElementById('details-project-status');
+    statusBadge.textContent = progress === 100 ? 'FINALIZADO' : 'ACTIVO';
+    statusBadge.className = `project-badge ${progress === 100 ? 'status-done' : 'status-active'}`;
+
+    const statsContainer = document.getElementById('details-project-stats');
+    statsContainer.innerHTML = `
+        <div style="display:flex; justify-content:space-between; font-size: 0.85rem;">
+            <span style="color: #64748b;">Pendientes</span>
+            <span style="font-weight:700;">${pending}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size: 0.85rem;">
+            <span style="color: #3b82f6;">En Curso</span>
+            <span style="font-weight:700;">${inProgress}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size: 0.85rem;">
+            <span style="color: #f59e0b;">En Revisión</span>
+            <span style="font-weight:700;">${review}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size: 0.85rem;">
+            <span style="color: #10b981;">Completadas</span>
+            <span style="font-weight:700;">${completed}</span>
+        </div>
+    `;
+
+    // Listeners de botones internos
+    modal.querySelectorAll('.close-modal').forEach(btn => {
+        btn.onclick = () => {
+            if (window.projectAudio) window.projectAudio.pause();
+            closeModals();
+        };
+    });
+
+    document.getElementById('btn-details-open-kanban').onclick = () => {
+        if (window.projectAudio) window.projectAudio.pause();
+        closeModals();
+        selectProject(project);
+    };
+
+    document.getElementById('btn-details-delete').onclick = async () => {
+        if (await showCustomConfirm('Eliminar Proyecto', `¿Estás seguro de eliminar el proyecto "${project.nombre}"? Esta acción no se puede deshacer y borrará todas sus tareas e historial.`, 'danger')) {
+            try {
+                showLoading();
+                if (window.projectAudio) window.projectAudio.pause();
+                
+                // Animación de salida
+                const card = document.querySelector(`.project-card[data-id="${project.id}"]`);
+                if (card) {
+                    card.classList.add('removing');
+                    await new Promise(r => setTimeout(r, 400));
+                }
+
+                await Storage.deleteProject(project.id);
+                projects = projects.filter(p => p.id !== project.id);
+                closeModals();
+                await refreshProjectViews();
+                hideLoading();
+                if (typeof showCustomAlert === 'function') showCustomAlert("Proyecto Eliminado", "El proyecto ha sido borrado con éxito.", "success");
+            } catch (e) {
+                hideLoading();
+                console.error(e);
+                showCustomAlert("Error", "No se pudo eliminar el proyecto.", "error");
+            }
+        }
+    };
+
+    modal.classList.remove('hidden');
+}
+
+function setupProjectAudioPlayer(url) {
+    if (window.projectAudio) {
+        window.projectAudio.pause();
+    }
+
+    const audio = new Audio(url);
+    window.projectAudio = audio;
+
+    const btnPlay = document.getElementById('btn-audio-details-play');
+    const timeline = document.getElementById('audio-details-timeline');
+    const volume = document.getElementById('audio-details-volume');
+    const currentTimeEl = document.getElementById('audio-details-current');
+    const durationTimeEl = document.getElementById('audio-details-duration');
+    const volumeIcon = document.getElementById('icon-audio-details-volume');
+
+    const formatTime = (time) => {
+        const m = Math.floor(time / 60).toString().padStart(2, '0');
+        const s = Math.floor(time % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+    };
+
+    btnPlay.onclick = () => {
+        if (audio.paused) {
+            audio.play();
+            btnPlay.innerHTML = '<i class="fas fa-pause"></i>';
+        } else {
+            audio.pause();
+            btnPlay.innerHTML = '<i class="fas fa-play"></i>';
+        }
+    };
+
+    audio.onloadedmetadata = () => {
+        timeline.max = audio.duration;
+        durationTimeEl.textContent = formatTime(audio.duration);
+    };
+
+    audio.ontimeupdate = () => {
+        timeline.value = audio.currentTime;
+        currentTimeEl.textContent = formatTime(audio.currentTime);
+    };
+
+    timeline.oninput = () => {
+        audio.currentTime = timeline.value;
+    };
+
+    volume.oninput = () => {
+        const vol = volume.value / 100;
+        audio.volume = vol;
+        if (vol === 0) volumeIcon.className = 'fas fa-volume-mute';
+        else if (vol < 0.5) volumeIcon.className = 'fas fa-volume-down';
+        else volumeIcon.className = 'fas fa-volume-up';
+    };
+
+    audio.onended = () => {
+        btnPlay.innerHTML = '<i class="fas fa-play"></i>';
+        timeline.value = 0;
+        currentTimeEl.textContent = '00:00';
+    };
 }
 
 function renderProjectList() {
@@ -412,6 +983,10 @@ async function selectProject(project) {
     currentProject = project;
     document.getElementById('current-project-name').textContent = project.nombre || project.name;
     
+    // FAB: Ocultar al entrar a un proyecto
+    const fab = document.getElementById('btn-fab-project');
+    if (fab) fab.classList.add('hidden');
+
     // Ocultar todas las vistas y mostrar el contenedor de controles
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
     viewControls.classList.remove('hidden');
@@ -461,14 +1036,27 @@ document.getElementById('btn-new-project').addEventListener('click', () => {
     document.getElementById('modal-project').classList.remove('hidden');
 });
 
+document.getElementById('btn-fab-project').addEventListener('click', () => {
+    const isIdeasView = !document.getElementById('ideas-view').classList.contains('hidden');
+    if (isIdeasView) {
+        openIdeaModal();
+    } else {
+        document.getElementById('modal-project').classList.remove('hidden');
+    }
+});
+
 document.getElementById('save-project').addEventListener('click', async () => {
     const name = document.getElementById('new-project-name').value;
-    const description = document.getElementById('new-project-desc')?.value;
+    const description = document.getElementById('new-project-desc')?.value || '';
     const dueDate = document.getElementById('new-project-due')?.value;
     
-    if (!name) return;
+    if (!name) {
+        showCustomAlert("Nombre Requerido", "Debes ingresar un nombre para el proyecto.", "warning");
+        return;
+    }
 
     try {
+        showLoading();
         const newProj = await Storage.addProject({ 
             name, 
             description,
@@ -476,6 +1064,16 @@ document.getElementById('save-project').addEventListener('click', async () => {
         });
         projects.unshift(newProj);
         
+        // Si venimos de la vista de Ideas y estamos convirtiendo una
+        if (window.convertingIdeaId) {
+            await Storage.updateIdea(window.convertingIdeaId, { proyecto_id: newProj.id });
+            window.convertingIdeaId = null;
+            // Refrescar ideas si la vista está activa
+            if (!document.getElementById('ideas-view').classList.contains('hidden')) {
+                await loadIdeas();
+            }
+        }
+
         // Log al nuevo proyecto
         await Storage.addHistory({
             accion: 'CREAR_PROYECTO',
@@ -494,8 +1092,12 @@ document.getElementById('save-project').addEventListener('click', async () => {
 
         await refreshProjectViews();
         closeModals();
+        hideLoading();
+        showCustomAlert("Proyecto Creado", `El proyecto "${name}" ha sido iniciado con éxito.`, "success");
     } catch (error) {
+        hideLoading();
         console.error("Error al crear proyecto:", error);
+        showCustomAlert("Error", "No se pudo crear el proyecto.", "error");
     }
 });
 
@@ -1220,7 +1822,39 @@ btnRefreshHistory.onclick = () => renderHistory();
 // Inicialización
 checkUser();
 
+const PROJECT_QUOTES = [
+    { text: "Lo que no se define no se puede medir. Lo que no se mide, no se puede mejorar.", author: "Peter Drucker" },
+    { text: "La planificación a largo plazo no es pensar en decisiones futuras, sino en el futuro de las decisiones presentes.", author: "Peter Drucker" },
+    { text: "Un proyecto sin un camino crítico es como un barco sin timón.", author: "D. Meyer" },
+    { text: "Cualquier cosa que valga la pena hacer, vale la pena hacerla bien.", author: "Lord Chesterfield" },
+    { text: "El trabajo en equipo es la capacidad de trabajar juntos hacia una visión común.", author: "Andrew Carnegie" },
+    { text: "La mejor forma de predecir el futuro es creándolo.", author: "Peter Drucker" },
+    { text: "El éxito es la suma de pequeños esfuerzos que se repiten cada día.", author: "Robert Collier" }
+];
+
+function showLoading() {
+    const modal = document.getElementById('modal-loading');
+    const quoteTitle = document.getElementById('loading-quote-title');
+    const quoteAuthor = document.getElementById('loading-quote-author');
+    
+    if (modal && quoteTitle && quoteAuthor) {
+        const randomQuote = PROJECT_QUOTES[Math.floor(Math.random() * PROJECT_QUOTES.length)];
+        quoteTitle.textContent = `"${randomQuote.text}"`;
+        quoteAuthor.textContent = `– ${randomQuote.author}`;
+        modal.classList.remove('hidden');
+    }
+}
+
+function hideLoading() {
+    const modal = document.getElementById('modal-loading');
+    if (modal) modal.classList.add('hidden');
+}
+
 function closeModals() {
+    if (window.projectAudio) {
+        window.projectAudio.pause();
+        window.projectAudio = null;
+    }
     document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
     document.querySelectorAll('input, textarea, select').forEach(i => {
         if (i.tagName === 'SELECT') i.selectedIndex = 0;
@@ -2089,7 +2723,7 @@ async function addElementFromUI(type) {
         cancelReply();
     } catch (error) {
         console.error("Error al añadir elemento:", error);
-        alert("Error al procesar la solicitud.");
+        showCustomAlert("Error", "No se pudo subir la información o el archivo.", "error");
     } finally {
         // Quitar bloqueo de subida
         overlay?.classList.add('hidden');
@@ -2205,4 +2839,5 @@ if ('serviceWorker' in navigator) {
             .catch(err => console.error('Error al registrar Service Worker', err));
     });
 }
+
 

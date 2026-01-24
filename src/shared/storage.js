@@ -406,6 +406,54 @@ const Storage = {
                 .eq('id', el.id)
         );
         await Promise.all(promises);
+    },
+
+    // LLAMADAS SUPABASE (Ideas)
+    async getIdeas() {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        const { data, error } = await supabaseClient
+            .from('daviprojects_ideas')
+            .select('*')
+            .eq('usuario_id', user.id)
+            .order('es_favorito', { ascending: false })
+            .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        return data;
+    },
+
+    async addIdea(idea) {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        const { data, error } = await supabaseClient
+            .from('daviprojects_ideas')
+            .insert([{
+                usuario_id: user.id,
+                titulo: idea.titulo,
+                contenido: idea.contenido || null,
+                audio_url: idea.audio_url || null,
+                color: idea.color || '#fff9c4', // Amarillo sticky note por defecto
+                es_favorito: idea.es_favorito || false
+            }])
+            .select();
+
+        if (error) throw error;
+        return data[0];
+    },
+
+    async updateIdea(ideaId, updates) {
+        const { error } = await supabaseClient
+            .from('daviprojects_ideas')
+            .update(updates)
+            .eq('id', ideaId);
+        if (error) throw error;
+    },
+
+    async deleteIdea(ideaId) {
+        const { error } = await supabaseClient
+            .from('daviprojects_ideas')
+            .delete()
+            .eq('id', ideaId);
+        if (error) throw error;
     }
 };
 
