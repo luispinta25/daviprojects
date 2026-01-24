@@ -252,6 +252,10 @@
                         <h3 id="mobile-project-name">Selecciona un proyecto</h3>
                         <button id="btn-project-settings" class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
                     </div>
+                    <div id="project-audio-player-container" class="hidden" style="padding: 10px 15px; background: rgba(5, 166, 75, 0.1); border-bottom: 1px solid rgba(5, 166, 75, 0.2);">
+                        <p style="font-size: 0.8rem; color: #05A64B; margin-bottom: 5px; font-weight: 600;"><i class="fas fa-play-circle"></i> Audio de la Idea Original</p>
+                        <audio id="mobile-project-audio-player" controls style="width: 100%; height: 35px;"></audio>
+                    </div>
                     <div class="status-scroll-container">
                         <div class="status-filter" id="status-filter">
                             <button class="filter-pill active" data-status="TODO">Pendiente</button>
@@ -277,6 +281,28 @@
                     <!-- Logs aquí -->
                 </div>
             </section>
+
+            <!-- Vista de Ideas -->
+            <section id="mobile-ideas-view" class="view hidden">
+                <div class="view-header-fixed">
+                    <h3>Banco de Ideas</h3>
+                </div>
+                <div class="mobile-ideas-container">
+                    <div id="ideas-mobile-fav-grid" class="mobile-ideas-grid">
+                        <!-- Fav ideas -->
+                    </div>
+                    
+                    <h4 id="label-mobile-other-ideas" class="mobile-ideas-label hidden">OTRAS IDEAS</h4>
+                    <div id="ideas-mobile-main-grid" class="mobile-ideas-grid">
+                        <!-- Main ideas -->
+                    </div>
+
+                    <h4 id="label-mobile-converted-ideas" class="mobile-ideas-label hidden">PROYECTOS CREADOS</h4>
+                    <div id="ideas-mobile-converted-grid" class="mobile-ideas-grid" style="opacity: 0.7;">
+                        <!-- Converted ideas -->
+                    </div>
+                </div>
+            </section>
         </main>
 
         <nav class="bottom-nav">
@@ -295,9 +321,9 @@
                 <i class="fas fa-history"></i>
                 <span>Historial</span>
             </button>
-            <button class="nav-item" id="nav-btn-stats">
-                <i class="fas fa-chart-pie"></i>
-                <span>Métricas</span>
+            <button class="nav-item" id="nav-btn-ideas" data-view="mobile-ideas-view">
+                <i class="fas fa-lightbulb"></i>
+                <span>Ideas</span>
             </button>
         </nav>
     </div>
@@ -315,6 +341,10 @@
                 <button class="action-card" id="btn-create-project-sheet">
                     <div class="act-icon green"><i class="fas fa-folder-plus"></i></div>
                     <span>Nuevo Proyecto</span>
+                </button>
+                <button class="action-card" id="btn-create-idea-sheet">
+                    <div class="act-icon yellow"><i class="fas fa-lightbulb"></i></div>
+                    <span>Nueva Idea</span>
                 </button>
             </div>
         </div>
@@ -389,6 +419,59 @@
             </div>
             <div class="sheet-footer">
                 <button class="btn-confirm-full" id="save-task-mobile">Guardar Tarea</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Formulario Idea (Voz y Texto) -->
+    <div id="mobile-modal-idea" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <h3 id="mobile-idea-title-header">Anota tu Idea</h3>
+                <button onclick="closeMobileSheet('mobile-modal-idea')" class="btn-icon circle"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sheet-body">
+                <!-- STEP 1: Capture -->
+                <div id="m-idea-step-1">
+                    <div class="mobile-view-switch" style="margin-bottom: 2rem;">
+                        <button id="m-btn-mode-text" class="active">Texto</button>
+                        <button id="m-btn-mode-voice">Voz</button>
+                    </div>
+
+                    <div id="m-idea-text-box" class="input-group">
+                        <label>Contenido de la Idea</label>
+                        <textarea id="m-idea-content" placeholder="¿Qué tienes en mente?..." rows="8" style="background: #fffcf0;"></textarea>
+                    </div>
+
+                    <div id="m-idea-voice-box" class="input-group hidden">
+                        <div class="mobile-rec-ui" style="background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 1rem; padding: 2rem; display: flex; flex-direction: column; align-items: center; gap: 1.5rem;">
+                            <div id="m-idea-rec-timer" style="font-family: monospace; font-size: 2rem; color: #64748b;">00:00</div>
+                            <div class="rec-buttons" style="display: flex; gap: 1.5rem;">
+                                <button id="m-btn-idea-rec" class="btn-rec-mobile" style="width: 70px; height: 70px; border-radius: 50%; background: #ef4444; border: none; color: white; font-size: 1.8rem;"><i class="fas fa-microphone"></i></button>
+                                <button id="m-btn-idea-stop" class="btn-stop-mobile hidden" style="width: 70px; height: 70px; border-radius: 50%; background: #0f172a; border: none; color: white; font-size: 1.8rem;"><i class="fas fa-stop"></i></button>
+                            </div>
+                            <div id="m-idea-audio-preview" class="hidden" style="width: 100%;">
+                                <audio id="m-audio-idea-play" controls style="width: 100%;"></audio>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 2: Title -->
+                <div id="m-idea-step-2" class="hidden">
+                    <div class="input-group">
+                        <label>Dale un título a tu chispazo</label>
+                        <input type="text" id="m-idea-title-input" placeholder="Ej: Nueva app de cocina">
+                    </div>
+                </div>
+            </div>
+            <div class="sheet-footer">
+                <button id="m-btn-idea-next" class="btn-confirm-full">Siguiente <i class="fas fa-arrow-right"></i></button>
+                <div id="m-idea-final-actions" class="hidden" style="display: flex; gap: 1rem; width: 100%;">
+                    <button id="m-btn-idea-back" class="btn-confirm-full" style="background: #f1f5f9; color: #64748b; flex: 0.4;">Atrás</button>
+                    <button id="m-save-idea" class="btn-confirm-full" style="background: #fbbf24; color: #082359; flex: 1;">Guardar Idea</button>
+                </div>
             </div>
         </div>
     </div>

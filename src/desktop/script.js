@@ -340,6 +340,14 @@ async function toggleIdeaFav(id) {
     try {
         const newStatus = !idea.es_favorito;
         await Storage.updateIdea(id, { es_favorito: newStatus });
+        
+        // Log de favorito
+        await Storage.addHistory({
+            accion: 'FAVORITO_IDEA',
+            detalle: `${newStatus ? 'marcó como favorito' : 'quitó de favoritos'} el chispazo *"${idea.titulo}"*`,
+            proyecto_id: null
+        });
+
         idea.es_favorito = newStatus;
         renderIdeas();
     } catch (e) { console.error(e); }
@@ -1066,7 +1074,16 @@ document.getElementById('save-project').addEventListener('click', async () => {
         
         // Si venimos de la vista de Ideas y estamos convirtiendo una
         if (window.convertingIdeaId) {
+            const ideaObj = ideas.find(i => i.id === window.convertingIdeaId);
             await Storage.updateIdea(window.convertingIdeaId, { proyecto_id: newProj.id });
+            
+            // Log de conversión
+            await Storage.addHistory({
+                accion: 'CONVERTIR_IDEA',
+                detalle: `convirtió el chispazo *"${ideaObj?.titulo || 'sin título'}"* en un proyecto real`,
+                proyecto_id: newProj.id
+            });
+
             window.convertingIdeaId = null;
             // Refrescar ideas si la vista está activa
             if (!document.getElementById('ideas-view').classList.contains('hidden')) {

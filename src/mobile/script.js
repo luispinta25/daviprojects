@@ -7,6 +7,13 @@ let currentTaskId = null;
 let currentAttachment = null;
 let currentMobileReplyId = null; // Para respuestas style WhatsApp
 
+// --- IDEAS LOGIC ---
+let ideas = [];
+let currentIdeaAudioBlob = null;
+let ideaRecorder = null;
+let ideaAudioChunks = [];
+let ideaTimerInterval = null;
+
 // --- NAVEGACIÓN ENTRE TABS ---
 document.addEventListener('click', (e) => {
     if (e.target.classList.contains('tab-btn')) {
@@ -33,6 +40,8 @@ const fullProjectsList = document.getElementById('mobile-full-projects-list');
 const taskList = document.getElementById('mobile-task-list');
 const projectNameTitle = document.getElementById('mobile-project-name');
 const statusFilters = document.querySelectorAll('.filter-pill');
+const projectAudioContainer = document.getElementById('project-audio-player-container');
+const projectAudioPlayer = document.getElementById('mobile-project-audio-player');
 
 // --- INICIALIZACIÓN ---
 async function initMobile() {
@@ -90,9 +99,16 @@ async function initMobile() {
         closeMobileSheet('mobile-modal-actions');
         openMobileSheet('mobile-modal-project');
     };
+    document.getElementById('btn-create-idea-sheet').onclick = () => {
+        closeMobileSheet('mobile-modal-actions');
+        openMobileIdeaModal();
+    };
 
     document.getElementById('save-task-mobile').onclick = handleSaveTask;
     
+    // Inicializar Ideas
+    initMobileIdeas();
+
     // --- LÓGICA DE BANNER iOS (Si viene de Safari) ---
     const params = new URLSearchParams(window.location.search);
     if (params.get('safari') === '1') {
@@ -314,15 +330,24 @@ function switchView(viewId) {
         btnAddMain.onclick = () => {
             openMobileSheet('mobile-modal-project');
         };
+    } else if (viewId === 'mobile-ideas-view') {
+        // Modo Ideas (Amarillo)
+        btnAddMain.classList.remove('task-mode');
+        btnAddMain.classList.add('idea-mode');
+        btnAddMain.onclick = () => openMobileIdeaModal();
     } else {
         // Otros (Selector genérico)
-        btnAddMain.classList.remove('task-mode');
+        btnAddMain.classList.remove('task-mode', 'idea-mode');
         btnAddMain.onclick = () => openMobileSheet('mobile-modal-actions');
     }
 
     if (viewId === 'mobile-history-view') {
         currentHistoryFolder = null; // Reset carpetas al entrar
         renderHistory();
+    }
+
+    if (viewId === 'mobile-ideas-view') {
+        loadMobileIdeas();
     }
 }
 
@@ -374,8 +399,10 @@ async function createProject(nombre, descripcion = '', fecha_vencimiento = null)
 
         showMobileToast("Éxito", "Proyecto creado correctamente");
         await loadData();
+        return newProj;
     } catch (e) {
         showMobileToast("Error", "No se pudo crear el proyecto", true);
+        return null;
     }
 }
 
@@ -385,6 +412,19 @@ async function selectProject(id) {
     if (!project) return;
 
     projectNameTitle.textContent = project.nombre;
+    
+    // Reproductor de audio si viene de una idea
+    const description = project.descripcion || "";
+    const audioMatch = description.match(/\[Audio:\s*(https?:\/\/[^\]\s]+)\]/);
+    
+    if (audioMatch && audioMatch[1] && projectAudioContainer && projectAudioPlayer) {
+        projectAudioPlayer.src = audioMatch[1];
+        projectAudioContainer.classList.remove('hidden');
+    } else {
+        if (projectAudioPlayer) projectAudioPlayer.src = "";
+        if (projectAudioContainer) projectAudioContainer.classList.add('hidden');
+    }
+
     switchView('mobile-tasks-view');
     
     currentTasks = await Storage.getTasks(id);
@@ -1261,6 +1301,365 @@ function closeMobileSheet(id) {
             document.body.style.overflow = '';
         }
     }, 300);
+}
+
+// --- IDEAS LOGIC (NUEVO) ---
+function initMobileIdeas() {
+    document.getElementById('m-btn-mode-text').onclick = () => toggleMobileIdeaMode('text');
+    document.getElementById('m-btn-mode-voice').onclick = () => toggleMobileIdeaMode('voice');
+    
+    document.getElementById('m-btn-idea-next').onclick = handleMobileIdeaNext;
+    document.getElementById('m-btn-idea-back').onclick = handleMobileIdeaBack;
+    document.getElementById('m-save-idea').onclick = handleMobileSaveIdea;
+
+    document.getElementById('m-btn-idea-rec').onclick = startMobileIdeaRec;
+    document.getElementById('m-btn-idea-stop').onclick = stopMobileIdeaRec;
+}
+
+async function loadMobileIdeas() {
+    try {
+        ideas = await Storage.getIdeas();
+        renderMobileIdeas();
+    } catch (e) {
+        console.error("Error cargando ideas", e);
+    }
+}
+
+function renderMobileIdeas() {
+    const favGrid = document.getElementById('ideas-mobile-fav-grid');
+    const mainGrid = document.getElementById('ideas-mobile-main-grid');
+    const convGrid = document.getElementById('ideas-mobile-converted-grid');
+    
+    const labelOther = document.getElementById('label-mobile-other-ideas');
+    const labelConv = document.getElementById('label-mobile-converted-ideas');
+
+    if (!favGrid || !mainGrid) return;
+
+    favGrid.innerHTML = '';
+    mainGrid.innerHTML = '';
+    convGrid.innerHTML = '';
+
+    const favs = ideas.filter(i => i.es_favorito && !i.proyecto_id);
+    const regular = ideas.filter(i => !i.es_favorito && !i.proyecto_id);
+    const converted = ideas.filter(i => i.proyecto_id);
+
+    if (labelOther) labelOther.classList.toggle('hidden', !(favs.length > 0 && regular.length > 0));
+    if (labelConv) labelConv.classList.toggle('hidden', converted.length === 0);
+
+    favs.forEach(idea => favGrid.appendChild(createMobileIdeaCard(idea)));
+    regular.forEach(idea => mainGrid.appendChild(createMobileIdeaCard(idea)));
+    converted.forEach(idea => convGrid.appendChild(createMobileIdeaCard(idea)));
+}
+
+function createMobileIdeaCard(idea) {
+    const card = document.createElement('div');
+    card.className = `idea-card ${idea.proyecto_id ? 'converted' : ''}`;
+    card.style.background = idea.color || '#fff9c4';
+
+    let contentHtml = '';
+    if (idea.audio_url) {
+        contentHtml = `
+            <div class="idea-audio-box">
+                <button class="idea-audio-play-btn" onclick="event.stopPropagation(); playMobileIdeaAudio(this, '${idea.audio_url}')">
+                    <i class="fas fa-play"></i>
+                </button>
+                <div class="idea-audio-wave"><div class="idea-audio-progress"></div></div>
+            </div>
+            ${idea.contenido ? `<div class="idea-body">${idea.contenido}</div>` : ''}
+        `;
+    } else {
+        contentHtml = `<div class="idea-body">${idea.contenido || 'Sin contenido'}</div>`;
+    }
+
+    card.innerHTML = `
+        ${idea.proyecto_id ? '<div class="converted-badge">PROYECTO</div>' : ''}
+        <div class="idea-card-header">
+            <h4>${idea.titulo || 'Sin Título'}</h4>
+            <button class="idea-fav-btn ${idea.es_favorito ? 'active' : ''}" onclick="event.stopPropagation(); toggleMobileIdeaFav('${idea.id}')">
+                <i class="${idea.es_favorito ? 'fas' : 'far'} fa-star"></i>
+            </button>
+        </div>
+        ${contentHtml}
+        <div class="idea-footer">
+            <button class="btn-idea-action delete" onclick="event.stopPropagation(); deleteMobileIdea('${idea.id}')">
+                <i class="fas fa-trash-alt"></i>
+            </button>
+            ${!idea.proyecto_id ? `
+                <button class="btn-convert-idea" onclick="event.stopPropagation(); prepareMobileIdeaConversion('${idea.id}')">
+                    <i class="fas fa-rocket"></i> Crear Proyecto
+                </button>
+            ` : ''}
+        </div>
+    `;
+    return card;
+}
+
+function openMobileIdeaModal() {
+    openMobileSheet('mobile-modal-idea');
+    resetMobileIdeaForm();
+}
+
+function resetMobileIdeaForm() {
+    document.getElementById('m-idea-title-input').value = '';
+    document.getElementById('m-idea-content').value = '';
+    currentIdeaAudioBlob = null;
+    document.getElementById('m-idea-audio-preview').classList.add('hidden');
+    toggleMobileIdeaMode('text');
+    
+    // Reset Pasos
+    document.getElementById('m-idea-step-1').classList.remove('hidden');
+    document.getElementById('m-idea-step-2').classList.add('hidden');
+    document.getElementById('m-btn-idea-next').classList.remove('hidden');
+    document.getElementById('m-idea-final-actions').classList.add('hidden');
+    document.getElementById('mobile-idea-title-header').textContent = "Anota tu Idea";
+}
+
+function toggleMobileIdeaMode(mode) {
+    const btnText = document.getElementById('m-btn-mode-text');
+    const btnVoice = document.getElementById('m-btn-mode-voice');
+    const boxText = document.getElementById('m-idea-text-box');
+    const boxVoice = document.getElementById('m-idea-voice-box');
+
+    if (mode === 'text') {
+        btnText.classList.add('active');
+        btnVoice.classList.remove('active');
+        boxText.classList.remove('hidden');
+        boxVoice.classList.add('hidden');
+    } else {
+        btnText.classList.remove('active');
+        btnVoice.classList.add('active');
+        boxText.classList.add('hidden');
+        boxVoice.classList.remove('hidden');
+    }
+}
+
+function handleMobileIdeaNext() {
+    const content = document.getElementById('m-idea-content').value.trim();
+    if (!content && !currentIdeaAudioBlob) {
+        showMobileToast("Aviso", "Por favor, escribe algo o graba un audio", true);
+        return;
+    }
+    document.getElementById('m-idea-step-1').classList.add('hidden');
+    document.getElementById('m-idea-step-2').classList.remove('hidden');
+    document.getElementById('m-btn-idea-next').classList.add('hidden');
+    document.getElementById('m-idea-final-actions').classList.remove('hidden');
+    document.getElementById('mobile-idea-title-header').textContent = "Casi listo...";
+}
+
+function handleMobileIdeaBack() {
+    document.getElementById('m-idea-step-1').classList.remove('hidden');
+    document.getElementById('m-idea-step-2').classList.add('hidden');
+    document.getElementById('m-btn-idea-next').classList.remove('hidden');
+    document.getElementById('m-idea-final-actions').classList.add('hidden');
+    document.getElementById('mobile-idea-title-header').textContent = "Anota tu Idea";
+}
+
+async function handleMobileSaveIdea() {
+    const titulo = document.getElementById('m-idea-title-input').value.trim();
+    const contenido = document.getElementById('m-idea-content').value.trim();
+    if (!titulo) {
+        showMobileToast("Aviso", "El título es obligatorio", true);
+        return;
+    }
+
+    const btn = document.getElementById('m-save-idea');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+    try {
+        let audioUrl = null;
+        if (currentIdeaAudioBlob) {
+            const fileName = `idea_${Date.now()}.webm`;
+            // Usamos Storage.uploadFile para usar el bucket correcto (luispintapersonal/ideas)
+            audioUrl = await Storage.uploadFile(currentIdeaAudioBlob, `ideas/${fileName}`);
+        }
+
+        await Storage.addIdea({
+            titulo,
+            contenido,
+            audio_url: audioUrl,
+            color: '#fffcf0'
+        });
+
+        closeMobileSheet('mobile-modal-idea');
+        showMobileToast("¡Listo!", "Tu chispazo ha sido guardado");
+        loadMobileIdeas();
+    } catch (e) {
+        console.error(e);
+        showMobileToast("Error", "No se pudo guardar la idea", true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Guardar Idea";
+    }
+}
+
+async function startMobileIdeaRec() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        ideaRecorder = new MediaRecorder(stream);
+        ideaAudioChunks = [];
+        ideaRecorder.ondataavailable = e => ideaAudioChunks.push(e.data);
+        ideaRecorder.onstop = () => {
+            currentIdeaAudioBlob = new Blob(ideaAudioChunks, { type: 'audio/webm' });
+            const url = URL.createObjectURL(currentIdeaAudioBlob);
+            document.getElementById('m-audio-idea-play').src = url;
+            document.getElementById('m-idea-audio-preview').classList.remove('hidden');
+        };
+        ideaRecorder.start();
+        document.getElementById('m-btn-idea-rec').classList.add('hidden');
+        document.getElementById('m-btn-idea-stop').classList.remove('hidden');
+        
+        let secs = 0;
+        const timerEl = document.getElementById('m-idea-rec-timer');
+        timerEl.style.color = '#ef4444';
+        ideaTimerInterval = setInterval(() => {
+            secs++;
+            const m = Math.floor(secs/60).toString().padStart(2,'0');
+            const s = (secs%60).toString().padStart(2,'0');
+            timerEl.textContent = `${m}:${s}`;
+        }, 1000);
+    } catch (e) {
+        showMobileToast("Error Micrófono", "No se pudo acceder al micrófono", true);
+    }
+}
+
+function stopMobileIdeaRec() {
+    if (ideaRecorder) {
+        ideaRecorder.stop();
+        ideaRecorder.stream.getTracks().forEach(t => t.stop());
+    }
+    document.getElementById('m-btn-idea-rec').classList.remove('hidden');
+    document.getElementById('m-btn-idea-stop').classList.add('hidden');
+    if (ideaTimerInterval) clearInterval(ideaTimerInterval);
+    document.getElementById('m-idea-rec-timer').style.color = '#64748b';
+}
+
+function playMobileIdeaAudio(btn, url) {
+    const card = btn.closest('.idea-card');
+    const progressBar = card.querySelector('.idea-audio-progress');
+    const icon = btn.querySelector('i');
+
+    if (window.mActiveAudio && window.mActiveAudio.src === url) {
+        if (window.mActiveAudio.paused) {
+            window.mActiveAudio.play();
+            icon.className = 'fas fa-pause';
+        } else {
+            window.mActiveAudio.pause();
+            icon.className = 'fas fa-play';
+        }
+    } else {
+        if (window.mActiveAudio) window.mActiveAudio.pause();
+        document.querySelectorAll('.idea-audio-play-btn i').forEach(i => i.className = 'fas fa-play');
+
+        window.mActiveAudio = new Audio(url);
+        window.mActiveAudio.play();
+        icon.className = 'fas fa-pause';
+
+        window.mActiveAudio.ontimeupdate = () => {
+            const prog = (window.mActiveAudio.currentTime / window.mActiveAudio.duration) * 100;
+            if (progressBar) progressBar.style.width = `${prog}%`;
+        };
+
+        window.mActiveAudio.onended = () => {
+            icon.className = 'fas fa-play';
+            if (progressBar) progressBar.style.width = '0%';
+        };
+    }
+}
+
+async function toggleMobileIdeaFav(id) {
+    try {
+        const idea = ideas.find(i => i.id === id);
+        const newStatus = !idea.es_favorito;
+        await Storage.updateIdea(id, { es_favorito: newStatus });
+        
+        // Log de favorito
+        await Storage.addHistory({
+            accion: 'FAVORITO_IDEA',
+            detalle: `${newStatus ? 'marcó como favorito' : 'quitó de favoritos'} el chispazo *"${idea.titulo}"*`,
+            proyecto_id: null
+        });
+
+        loadMobileIdeas();
+    } catch (e) { console.error(e); }
+}
+
+async function deleteMobileIdea(id) {
+    if (!confirm("¿Seguro que quieres eliminar este chispazo?")) return;
+    try {
+        await Storage.deleteIdea(id);
+        loadMobileIdeas();
+    } catch (e) { console.error(e); }
+}
+
+async function prepareMobileIdeaConversion(id) {
+    const idea = ideas.find(i => i.id === id);
+    // Llenar modal de proyecto con datos de la idea
+    document.getElementById('mobile-project-name-input').value = idea.titulo;
+    document.getElementById('mobile-project-desc-input').value = idea.contenido || '';
+    
+    const originalSaveBtn = document.getElementById('save-project-mobile');
+    
+    // Función temporal para guardar vinculando la idea
+    const handleConversionSave = async () => {
+        const name = document.getElementById('mobile-project-name-input').value.trim();
+        let desc = document.getElementById('mobile-project-desc-input').value.trim();
+        const due = document.getElementById('mobile-project-due-input').value || null;
+        
+        if (!name) return showMobileToast("Aviso", "El nombre es obligatorio", true);
+        
+        // Si la idea tiene audio, lo añadimos a la descripción para el reproductor
+        if (idea.audio_url) {
+            desc += `\n\n[Audio: ${idea.audio_url}]`;
+        }
+
+        originalSaveBtn.disabled = true;
+        originalSaveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        
+        try {
+            const newProj = await createProject(name, desc, due);
+            if (newProj) {
+                // Vincular idea al proyecto
+                await Storage.updateIdea(id, { proyecto_id: newProj.id });
+                
+                // Log de conversión
+                await Storage.addHistory({
+                    accion: 'CONVERTIR_IDEA',
+                    detalle: `convirtió el chispazo *"${idea.titulo}"* en un proyecto real`,
+                    proyecto_id: newProj.id
+                });
+
+                closeMobileSheet('mobile-modal-project');
+                showMobileToast("¡Éxito!", "Proyecto creado desde tu idea");
+                switchView('mobile-gallery-view');
+            }
+        } catch (e) {
+            console.error(e);
+            showMobileToast("Error", "No se pudo crear el proyecto", true);
+        } finally {
+            originalSaveBtn.disabled = false;
+            originalSaveBtn.textContent = "Crear Proyecto";
+            // Restaurar listener original
+            setupOriginalProjectSave();
+        }
+    };
+
+    const setupOriginalProjectSave = () => {
+        originalSaveBtn.onclick = async () => {
+            const name = document.getElementById('mobile-project-name-input').value;
+            const desc = document.getElementById('mobile-project-desc-input').value;
+            const due = document.getElementById('mobile-project-due-input').value;
+            if (!name) return showMobileToast("Aviso", "El nombre es obligatorio", true);
+            await createProject(name, desc, due);
+            closeMobileSheet('mobile-modal-project');
+            document.getElementById('mobile-project-name-input').value = '';
+            document.getElementById('mobile-project-desc-input').value = '';
+            document.getElementById('mobile-project-due-input').value = '';
+        };
+    };
+
+    originalSaveBtn.onclick = handleConversionSave;
+    openMobileSheet('mobile-modal-project');
 }
 
 function showMobileToast(title, message, isError = false) {
