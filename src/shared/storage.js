@@ -171,7 +171,7 @@ const Storage = {
     },
 
     async _notifyWebhook(nombre, accion, detalle, proyectoId, tareaId = null) {
-        const url = 'https://lpwebhook.luispinta.com/webhook/daviprojects';
+        const url = 'https://lpn8nwebhook.luispintasolutions.com/webhook/daviprojects1';
         
         // Priorizar el enlace a la tarea si existe
         let projectLink = '';

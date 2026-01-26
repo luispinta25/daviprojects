@@ -5,7 +5,8 @@ let currentTasks = []; // Tareas del proyecto seleccionado
 let currentProjectId = null;
 let currentTaskId = null;
 let currentAttachment = null;
-let currentMobileReplyId = null; // Para respuestas style WhatsApp
+let currentMobileReplyId = null; 
+let globalChatIntervalMobile = null; // Para sondeo cada 10s
 
 // --- NAVEGACIÓN ENTRE TABS ---
 document.addEventListener('click', (e) => {
@@ -1043,6 +1044,10 @@ function clearMobileAttachment() {
 // --- DETALLE DE TAREA ---
 async function openTaskDetail(id) {
     currentTaskId = id;
+    
+    // Limpiar intervalo previo
+    if (globalChatIntervalMobile) clearInterval(globalChatIntervalMobile);
+
     const task = currentTasks.find(t => t.id === id);
     if (!task) return;
 
@@ -1070,14 +1075,28 @@ async function openTaskDetail(id) {
     const chatTab = document.getElementById('tab-comments');
     if (chatTab) chatTab.classList.remove('hidden');
 
+    // Iniciar sondeo silencioso del chat (cada 10 seg)
+    globalChatIntervalMobile = setInterval(() => {
+        const sheet = document.getElementById('mobile-task-detail');
+        if (currentTaskId && sheet && !sheet.classList.contains('hidden')) {
+            loadTaskElements(true);
+        }
+    }, 10000);
+
     openMobileSheet('mobile-task-detail');
     loadTaskElements();
 }
 
-async function loadTaskElements() {
+async function loadTaskElements(silent = false) {
     if (!currentTaskId) return;
+    
     const elements = await Storage.getTaskElements(currentTaskId);
-    currentElements = elements; // Guardar para referencia
+    
+    // Detectar si hay mensajes nuevos
+    const oldMsgCount = currentElements.filter(e => e.tipo === 'COMMENT').length;
+    const newMsgCount = elements.filter(e => e.tipo === 'COMMENT').length;
+    
+    currentElements = elements; 
     
     // Checklist
     const checks = elements.filter(e => e.tipo === 'CHECKLIST').sort((a,b) => a.posicion - b.posicion);
@@ -1131,7 +1150,7 @@ async function loadTaskElements() {
                 } catch (e) {
                     console.error("Error reordenando:", e);
                     showMobileToast("Error", "No se pudo guardar el orden");
-                    loadTaskElements(); // Recargar para volver al orden real
+                    loadTaskElements(true); // Recargar silenciosamente
                 }
             }
         });
@@ -1148,6 +1167,59 @@ async function loadTaskElements() {
         const hasAudio = e.archivo_url && (e.archivo_url.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i) || (e.archivo_tipo && e.archivo_tipo.startsWith('audio/')));
         
         // Bloque de respuesta (WhatsApp Style)
+        let replyBlock = '';
+        if (e.reply_to_id) {
+            const parent = elements.find(parentE => parentE.id === e.reply_to_id);
+            if (parent) {
+                const parentText = parent.contenido ? parent.contenido : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
+                replyBlock = `
+                    <div class="m-reply-ref" onclick="scrollToMobileComment('${parent.id}')">
+                        <div class="m-reply-author">${parent.usuario_id === session.user.id ? 'Tú' : (parent.usuario_nombre || 'Usuario')}</div>
+                        <div class="m-reply-text">${parentText}</div>
+                    </div>
+                `;
+            }
+        }
+
+        let contentHtml = `<p>${e.contenido || ''}</p>`;
+        if (hasImage) {
+            contentHtml = `<img src="${e.archivo_url}" class="chat-img-mobile" onclick="zoomImageMobile('${e.archivo_url}')" />` + contentHtml;
+        } else if (hasAudio) {
+            contentHtml = renderElegantAudioPlayer(e.archivo_url, e.id) + contentHtml;
+        } else if (e.archivo_url) {
+            contentHtml = `<a href="${e.archivo_url}" target="_blank" class="chat-file-link-mobile"><i class="fas fa-file-download"></i> Descargar archivo</a>` + contentHtml;
+        }
+
+        return `
+            <div class="m-comment-wrapper ${isMe ? 'me' : 'other'}" id="m-comment-${e.id}">
+                <div class="m-comment-bubble">
+                    <div class="m-comment-header">
+                        <span class="m-comment-author">${isMe ? 'Tú' : (e.usuario_nombre || 'Usuario')}</span>
+                        <div class="m-comment-actions">
+                            <button onclick="toggleMobileCommentMenu(event, '${e.id}')"><i class="fas fa-chevron-down"></i></button>
+                            <div id="m-dropdown-${e.id}" class="m-comment-dropdown hidden">
+                                <button onclick="replyMobileComment('${e.id}')"><i class="fas fa-reply"></i> Responder</button>
+                                ${isMe ? `<button onclick="deleteElement('${e.id}')" class="m-red"><i class="fas fa-trash"></i> Eliminar</button>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    ${replyBlock}
+                    <div class="m-comment-body">
+                        ${contentHtml}
+                    </div>
+                    <div class="m-comment-footer">
+                        <span>${new Date(e.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Auto-scroll si hay mensajes nuevos
+    if (newMsgCount > oldMsgCount) {
+        commentsList.scrollTop = commentsList.scrollHeight;
+    }
+}
         let replyBlock = '';
         if (e.reply_to_id) {
             const parent = elements.find(p => p.id === e.reply_to_id);

@@ -8,6 +8,7 @@ let draggedTaskId = null;
 let lastActiveView = 'kanban'; 
 let currentHistoryFolder = null; 
 let globalAllTasks = []; // Caché global para sincronización silenciosa
+let globalChatInterval = null; // Intervalo para sondeo del chat
 
 const STATUS_NAMES = {
     'TODO': 'Por Hacer',
@@ -1188,6 +1189,10 @@ let isEditMode = false;
 function openTaskModal(taskId = null) {
     editingTaskId = taskId;
     const modal = document.getElementById('modal-task');
+    
+    // Limpiar intervalo previo si existe
+    if (globalChatInterval) clearInterval(globalChatInterval);
+
     const btnEdit = document.getElementById('btn-edit-task');
     const formContainer = document.getElementById('task-form-container');
     const infoContainer = document.getElementById('task-info-container');
@@ -1279,6 +1284,13 @@ function openTaskModal(taskId = null) {
 
         // Sincronizar UI de prioridad (y banner)
         updatePriorityUI(task.prioridad || 1);
+
+        // Iniciar sondeo del chat (cada 10 seg)
+        globalChatInterval = setInterval(() => {
+            if (editingTaskId && !document.getElementById('modal-task').classList.contains('hidden')) {
+                fetchTaskElements(editingTaskId, true);
+            }
+        }, 10000);
 
         formContainer.classList.add('hidden');
         infoContainer.classList.remove('hidden');
@@ -2463,7 +2475,7 @@ document.querySelector('.close-zoom')?.addEventListener('click', () => {
     document.getElementById('modal-image-zoom').classList.add('hidden');
 });
 
-async function fetchTaskElements(taskId) {
+async function fetchTaskElements(taskId, silent = false) {
     const overlays = [
         document.getElementById('pane-loading-comments'),
         document.getElementById('pane-loading-check'),
@@ -2471,22 +2483,31 @@ async function fetchTaskElements(taskId) {
     ];
 
     try {
-        // Mostrar cargando en todo el panel (Carga inicial)
-        overlays.forEach(ov => ov?.classList.remove('hidden'));
+        // Mostrar cargando solo si no es silencioso
+        if (!silent) {
+            overlays.forEach(ov => ov?.classList.remove('hidden'));
+        }
         
-        taskElements = await Storage.getTaskElements(taskId);
-        renderTaskElements();
+        const data = await Storage.getTaskElements(taskId);
+        
+        // Si hay nuevos mensajes, activamos autoscroll
+        const oldMsg = taskElements.filter(e => e.tipo === 'COMMENT').length;
+        const newMsg = data.filter(e => e.tipo === 'COMMENT').length;
+        
+        taskElements = data;
+        renderTaskElements(newMsg > oldMsg);
     } catch (error) {
-        console.error("Error al obtener elementos de la tarea:", error);
+        if (!silent) console.error("Error al obtener elementos de la tarea:", error);
     } finally {
-        // Ocultar con un pequeño delay para que se sienta la transición profesional
-        setTimeout(() => {
-            overlays.forEach(ov => ov?.classList.add('hidden'));
-        }, 500);
+        if (!silent) {
+            setTimeout(() => {
+                overlays.forEach(ov => ov?.classList.add('hidden'));
+            }, 500);
+        }
     }
 }
 
-function renderTaskElements() {
+function renderTaskElements(shouldScroll = false) {
     if (!taskChecklist || !taskNumberedList || !taskDiscussion) return;
 
     // Limpiar contenedores
@@ -2630,6 +2651,11 @@ function renderTaskElements() {
         `;
         taskDiscussion.appendChild(div);
     });
+
+    // Auto-scroll al final si hay mensajes nuevos o si se pide explícitamente
+    if (shouldScroll) {
+        taskDiscussion.scrollTop = taskDiscussion.scrollHeight;
+    }
 }
 
 function toggleCommentMenu(event, id) {
