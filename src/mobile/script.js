@@ -1033,12 +1033,21 @@ function openMobileCamera() {
 
 function clearMobileAttachment() {
     currentAttachment = null;
-    document.getElementById('mobile-file-input').value = '';
-    document.getElementById('mobile-attachment-preview').classList.add('hidden');
-    // Reset preview visuals
-    document.getElementById('mobile-preview-thumb-container').classList.add('hidden');
-    document.getElementById('mobile-preview-icon').classList.remove('hidden');
-    document.getElementById('mobile-preview-img').src = '';
+    const fileInput = document.getElementById('mobile-file-input');
+    if (fileInput) fileInput.value = '';
+    
+    const preview = document.getElementById('mobile-attachment-preview');
+    if (preview) preview.classList.add('hidden');
+    
+    const thumbContainer = document.getElementById('mobile-preview-thumb-container');
+    if (thumbContainer) thumbContainer.classList.add('hidden');
+    
+    const imgPreview = document.getElementById('mobile-preview-img');
+    if (imgPreview) imgPreview.src = '';
+    
+    // El icono opcional
+    const iconContainer = document.getElementById('mobile-preview-icon');
+    if (iconContainer) iconContainer.classList.remove('hidden');
 }
 
 // --- DETALLE DE TAREA ---
@@ -1078,13 +1087,55 @@ async function openTaskDetail(id) {
     // Iniciar sondeo silencioso del chat (cada 10 seg)
     globalChatIntervalMobile = setInterval(() => {
         const sheet = document.getElementById('mobile-task-detail');
-        if (currentTaskId && sheet && !sheet.classList.contains('hidden')) {
+        const chatModal = document.getElementById('mobile-chat-modal');
+        const isDetailOpen = sheet && !sheet.classList.contains('hidden');
+        const isChatOpen = chatModal && !chatModal.classList.contains('hidden');
+
+        if (currentTaskId && (isDetailOpen || isChatOpen)) {
             loadTaskElements(true);
         }
     }, 10000);
 
     openMobileSheet('mobile-task-detail');
     loadTaskElements();
+}
+
+function openChatMobile() {
+    if (!currentTaskId) return;
+    document.getElementById('chat-task-title').textContent = document.getElementById('detail-task-title').textContent;
+    openMobileSheet('mobile-chat-modal');
+    loadTaskElements();
+}
+
+function openChecklistMobile() {
+    if (!currentTaskId) return;
+    openMobileSheet('mobile-checklist-modal');
+    loadTaskElements();
+}
+
+function openStepsMobile() {
+    if (!currentTaskId) return;
+    openMobileSheet('mobile-steps-modal');
+    loadTaskElements();
+}
+
+// --- HELPERS ---
+const nameColors = [
+    '#e542a3', // Rosa
+    '#34b7f1', // Celeste
+    '#f59e0b', // Ambar
+    '#10b981', // Esmeralda
+    '#6366f1', // Indigo
+    '#ef4444'  // Rojo
+];
+
+function getUserColor(name) {
+    if (!name) return nameColors[0];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return nameColors[Math.abs(hash) % nameColors.length];
 }
 
 async function loadTaskElements(silent = false) {
@@ -1163,6 +1214,9 @@ async function loadTaskElements(silent = false) {
     
     commentsList.innerHTML = comments.map(e => {
         const isMe = e.usuario_id === session.user.id;
+        const authorName = e.usuario_nombre || 'Usuario';
+        const authorColor = isMe ? '#059669' : getUserColor(authorName);
+        
         const hasImage = e.archivo_url && (e.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i) || (e.archivo_tipo && e.archivo_tipo.startsWith('image/')));
         const hasAudio = e.archivo_url && (e.archivo_url.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i) || (e.archivo_tipo && e.archivo_tipo.startsWith('audio/')));
         
@@ -1172,9 +1226,10 @@ async function loadTaskElements(silent = false) {
             const parent = elements.find(parentE => parentE.id === e.reply_to_id);
             if (parent) {
                 const parentText = parent.contenido ? parent.contenido : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
+                const parentAuthor = parent.usuario_id === session.user.id ? 'Tú' : (parent.usuario_nombre || 'Usuario');
                 replyBlock = `
-                    <div class="m-reply-ref" onclick="scrollToMobileComment('${parent.id}')">
-                        <div class="m-reply-author">${parent.usuario_id === session.user.id ? 'Tú' : (parent.usuario_nombre || 'Usuario')}</div>
+                    <div class="m-reply-ref" onclick="event.stopPropagation(); scrollToMobileMessage('${parent.id}')">
+                        <div class="m-reply-author" style="color: ${getUserColor(parentAuthor)}">${parentAuthor}</div>
                         <div class="m-reply-text">${parentText}</div>
                     </div>
                 `;
@@ -1183,24 +1238,20 @@ async function loadTaskElements(silent = false) {
 
         let contentHtml = `<p>${e.contenido || ''}</p>`;
         if (hasImage) {
-            contentHtml = `<img src="${e.archivo_url}" class="chat-img-mobile" onclick="zoomImageMobile('${e.archivo_url}')" />` + contentHtml;
+            contentHtml = `<img src="${e.archivo_url}" class="chat-img-mobile" onclick="event.stopPropagation(); zoomImageMobile('${e.archivo_url}')" />` + contentHtml;
         } else if (hasAudio) {
             contentHtml = renderElegantAudioPlayer(e.archivo_url, e.id) + contentHtml;
         } else if (e.archivo_url) {
-            contentHtml = `<a href="${e.archivo_url}" target="_blank" class="chat-file-link-mobile"><i class="fas fa-file-download"></i> Descargar archivo</a>` + contentHtml;
+            contentHtml = `<a href="${e.archivo_url}" target="_blank" class="chat-file-link-mobile" onclick="event.stopPropagation();"><i class="fas fa-file-download"></i> Descargar archivo</a>` + contentHtml;
         }
 
         return `
             <div class="m-comment-wrapper ${isMe ? 'me' : 'other'}" id="m-comment-${e.id}">
-                <div class="m-comment-bubble">
+                <div class="m-comment-bubble" onclick="handleCommentClick('${e.id}', \`${(e.contenido || '').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`, ${isMe}, '${authorName.replace(/'/g, "\\'")}')">
                     <div class="m-comment-header">
-                        <span class="m-comment-author">${isMe ? 'Tú' : (e.usuario_nombre || 'Usuario')}</span>
+                        <span class="m-comment-author" style="color: ${authorColor}">${authorName}</span>
                         <div class="m-comment-actions">
-                            <button onclick="toggleMobileCommentMenu(event, '${e.id}')"><i class="fas fa-chevron-down"></i></button>
-                            <div id="m-dropdown-${e.id}" class="m-comment-dropdown hidden">
-                                <button onclick="replyMobileComment('${e.id}')"><i class="fas fa-reply"></i> Responder</button>
-                                ${isMe ? `<button onclick="deleteElement('${e.id}')" class="m-red"><i class="fas fa-trash"></i> Eliminar</button>` : ''}
-                            </div>
+                            <i class="fas fa-chevron-down" style="font-size: 0.7rem; opacity: 0.3;"></i>
                         </div>
                     </div>
                     ${replyBlock}
@@ -1219,37 +1270,6 @@ async function loadTaskElements(silent = false) {
     if (newMsgCount > oldMsgCount) {
         commentsList.scrollTop = commentsList.scrollHeight;
     }
-}
-        let replyBlock = '';
-        if (e.reply_to_id) {
-            const parent = elements.find(p => p.id === e.reply_to_id);
-            if (parent) {
-                const parentText = parent.contenido ? parent.contenido : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
-                replyBlock = `
-                    <div class="reply-reference-mobile" onclick="event.stopPropagation(); scrollToMobileMessage('${parent.id}')">
-                        <span class="reply-author-mobile">${parent.usuario_id === session.user.id ? 'Tú' : (parent.usuario_nombre || 'Usuario')}</span>
-                        <span class="reply-text-mobile">${parentText}</span>
-                    </div>
-                `;
-            }
-        }
-
-        return `
-            <div id="mobile-comment-${e.id}" class="comment-bubble ${isMe ? 'me' : 'other'}" onclick="handleCommentClick('${e.id}', \`${(e.contenido || '').replace(/`/g, '\\`')}\`, ${isMe}, \`${(e.usuario_nombre || 'Usuario').replace(/`/g, '\\`')}\`)">
-                <span class="comment-meta">${isMe ? 'Tú' : (e.usuario_nombre || 'Usuario')}</span>
-                <div class="comment-text">
-                    ${replyBlock}
-                    ${e.contenido || ''}
-                    ${hasImage ? `<img src="${e.archivo_url}" class="comment-image" onclick="event.stopPropagation(); window.open('${e.archivo_url}', '_blank')">` : ''}
-                    ${hasAudio ? renderElegantAudioPlayer(e.archivo_url, e.id) : ''}
-                    ${e.archivo_url && !hasImage && !hasAudio ? `<a href="${e.archivo_url}" onclick="event.stopPropagation()" target="_blank" style="display:block; margin-top:8px; color:inherit; font-size:0.8rem; text-decoration:underline;"><i class="fas fa-paperclip"></i> Ver archivo adjunto</a>` : ''}
-                </div>
-            </div>
-        `;
-    }).join('');
-    
-    // Auto scroll al final del chat
-    commentsList.scrollTop = commentsList.scrollHeight;
 }
 
 let activeCommentId = null;
@@ -1280,8 +1300,10 @@ function replyMobileComment() {
     const authorEl = document.getElementById('mobile-reply-author');
     const textEl = document.getElementById('mobile-reply-text');
     
-    authorEl.textContent = activeCommentAuthor === 'Tú' ? 'Respondiendo a ti' : `Respondiendo a ${activeCommentAuthor}`;
-    textEl.textContent = activeCommentContent || '📎 Archivo adjunto';
+    if (authorEl && textEl) {
+        authorEl.textContent = activeCommentAuthor === 'Tú' ? 'Respondiendo a ti' : `Respondiendo a ${activeCommentAuthor}`;
+        textEl.textContent = activeCommentContent || '📎 Archivo adjunto';
+    }
     
     preview?.classList.remove('hidden');
     document.getElementById('new-comment-mobile')?.focus();

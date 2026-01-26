@@ -299,8 +299,6 @@
             <section id="mobile-ideas-view" class="view hidden">
                 <div class="view-header-fixed">
                     <h3>Banco de Ideas</h3>
-                    <div class="header-actions">
-                    </div>
                 </div>
 
                 <!-- Input rápido para ideas -->
@@ -512,76 +510,114 @@
                     </div>
                 </div>
                 
-                <!-- SECCIÓN SCROLLABLE: ELEMENTOS DINÁMICOS -->
-                <div class="task-scrollable-content">
-                    <div class="tabs-detail">
-                        <button class="tab-btn active" data-tab="tab-comments">Chat</button>
-                        <button class="tab-btn" data-tab="tab-check">Checklist</button>
-                        <button class="tab-btn" data-tab="tab-ordered">Lista</button>
-                    </div>
+                <!-- SECCIÓN: ACCIONES RÁPIDAS (NUEVAS) -->
+                <div class="task-quick-access">
+                    <button class="qa-btn" onclick="openChatMobile()">
+                        <div class="qa-icon"><i class="fas fa-comments"></i></div>
+                        <span>Chat</span>
+                    </button>
+                    <button class="qa-btn" onclick="openChecklistMobile()">
+                        <div class="qa-icon"><i class="fas fa-tasks"></i></div>
+                        <span>Checklist</span>
+                    </button>
+                    <button class="qa-btn" onclick="openStepsMobile()">
+                        <div class="qa-icon"><i class="fas fa-list-ol"></i></div>
+                        <span>Pasos</span>
+                    </button>
+                </div>
+                
+                <div class="task-scrollable-content hidden">
+                    <!-- TABS ELIMINADOS O MOVIDOS A MODALES -->
+                </div>
+            </div>
+        </div>
+    </div>
 
-                    <!-- TAB: CHAT (COMMENTS) - PRIMERO -->
-                    <div id="tab-comments" class="tab-content">
-                        <div id="mobile-comments-list" class="comments-container-mobile"></div>
-                        
-                        <!-- Area de Adjuntos -->
-                        <div id="mobile-attachment-preview" class="hidden">
-                            <div class="preview-item">
-                                <div id="mobile-preview-thumb-container" class="hidden">
-                                    <img id="mobile-preview-img" src="" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover; margin-right: 10px;">
-                                </div>
-                                <div id="mobile-preview-icon" class="preview-icon-box">
-                                    <i class="fas fa-file"></i>
-                                </div>
-                                <span id="mobile-file-name" style="flex: 1; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">archivo.jpg</span>
-                                <button onclick="clearMobileAttachment()"><i class="fas fa-times"></i></button>
-                            </div>
+    <!-- Modal Modal Chat Full Screen -->
+    <div id="mobile-chat-modal" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-header chat-header-mobile">
+                <button onclick="closeMobileSheet('mobile-chat-modal')" class="btn-icon circle"><i class="fas fa-arrow-left"></i></button>
+                <div class="chat-title-group">
+                    <h3 id="chat-task-title">Chat de la Tarea</h3>
+                    <span id="chat-online-dot">En línea</span>
+                </div>
+            </div>
+            <div class="sheet-body chat-body-mobile">
+                <div id="mobile-comments-list" class="comments-container-mobile"></div>
+            </div>
+            
+            <div class="comment-input-area-modal">
+                <!-- Area de Adjuntos -->
+                <div id="mobile-attachment-preview" class="hidden">
+                    <div class="preview-item">
+                        <div id="mobile-preview-thumb-container" class="hidden">
+                            <img id="mobile-preview-img" src="" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover; margin-right: 10px;">
                         </div>
-
-                        <div class="comment-input-area" style="flex-direction: column; align-items: stretch; padding: 0;">
-                            <!-- Preview de Respuesta estilo WhatsApp -->
-                            <div id="mobile-reply-preview" class="reply-preview-mobile hidden">
-                                <div class="reply-preview-info">
-                                    <div id="mobile-reply-author" class="title">Autor</div>
-                                    <div id="mobile-reply-text" class="text">Mensaje...</div>
-                                </div>
-                                <button onclick="cancelMobileReply()" class="btn-close-reply-mobile">
-                                    <i class="fas fa-times"></i>
-                                </button>
-                            </div>
-
-                            <div style="display: flex; align-items: center; padding: 10px 15px; width: 100%;">
-                                <input type="file" id="mobile-file-input" hidden onchange="handleMobileFileSelect(this)">
-                                <button class="btn-attach" onclick="document.getElementById('mobile-file-input').click()">
-                                    <i class="fas fa-paperclip"></i>
-                                </button>
-                                <button class="btn-attach" onclick="openMobileCamera()">
-                                    <i class="fas fa-camera"></i>
-                                </button>
-                                <textarea id="new-comment-mobile" placeholder="Escribe un mensaje..."></textarea>
-                                <button id="btn-send-comment-mobile" class="send-circle"><i class="fas fa-paper-plane"></i></button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- TAB: CHECKLIST -->
-                    <div id="tab-check" class="tab-content hidden">
-                        <div id="mobile-checklist-items"></div>
-                        <div class="add-item-row">
-                            <input type="text" id="new-check-mobile" placeholder="Ej: Revisar entregables...">
-                            <button id="btn-add-check-mobile"><i class="fas fa-plus"></i></button>
-                        </div>
-                    </div>
-
-                    <!-- TAB: LISTA (NUMBERED) -->
-                    <div id="tab-ordered" class="tab-content hidden">
-                        <div id="mobile-ordered-items"></div>
-                        <div class="add-item-row">
-                            <input type="text" id="new-ordered-mobile" placeholder="Ej: Ítem de la lista...">
-                            <button id="btn-add-ordered-mobile"><i class="fas fa-plus"></i></button>
-                        </div>
+                        <span id="mobile-file-name" style="flex: 1; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">archivo.jpg</span>
+                        <button onclick="clearMobileAttachment()"><i class="fas fa-times"></i></button>
                     </div>
                 </div>
+
+                <!-- Preview de Respuesta -->
+                <div id="mobile-reply-preview" class="reply-preview-mobile hidden">
+                    <div class="reply-preview-info">
+                        <div id="mobile-reply-author" class="title">Autor</div>
+                        <div id="mobile-reply-text" class="text">Mensaje...</div>
+                    </div>
+                    <button onclick="cancelMobileReply()" class="btn-close-reply-mobile">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="chat-input-row">
+                    <input type="file" id="mobile-file-input" hidden onchange="handleMobileFileSelect(this)">
+                    <button class="btn-chat-action" onclick="document.getElementById('mobile-file-input').click()">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    <button class="btn-chat-action" onclick="openMobileCamera()">
+                        <i class="fas fa-camera"></i>
+                    </button>
+                    <textarea id="new-comment-mobile" placeholder="Escribe un mensaje..."></textarea>
+                    <button id="btn-send-comment-mobile" class="send-btn-chat"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Checklist Full Screen -->
+    <div id="mobile-checklist-modal" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-header">
+                <button onclick="closeMobileSheet('mobile-checklist-modal')" class="btn-icon circle"><i class="fas fa-arrow-left"></i></button>
+                <h3>Checklist</h3>
+            </div>
+            <div class="sheet-body">
+                <div id="mobile-checklist-items"></div>
+                <div class="add-item-row-mobile">
+                    <input type="text" id="new-check-mobile" placeholder="Ej: Revisar entregables...">
+                    <button id="btn-add-check-mobile" class="btn-add-circle"><i class="fas fa-plus"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Pasos Full Screen -->
+    <div id="mobile-steps-modal" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-header">
+                <button onclick="closeMobileSheet('mobile-steps-modal')" class="btn-icon circle"><i class="fas fa-arrow-left"></i></button>
+                <h3>Pasos de Ejecución</h3>
+            </div>
+            <div class="sheet-body">
+                <div id="mobile-ordered-items"></div>
+                <div class="add-item-row-mobile">
+                    <input type="text" id="new-ordered-mobile" placeholder="Ej: Paso 1...">
+                    <button id="btn-add-ordered-mobile" class="btn-add-circle"><i class="fas fa-plus"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
             </div>
         </div>
     </div>
