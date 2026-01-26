@@ -19,12 +19,15 @@
             background: #082359;
             color: white;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
             font-family: 'Inter', sans-serif;
             overflow: hidden;
+            padding: 30px 0;
+            box-sizing: border-box;
         }
         .loader {
             text-align: center;
@@ -52,14 +55,26 @@
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         .powered-by-splash {
-            position: absolute;
-            bottom: 40px;
+            margin-top: 50px;
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
             align-items: center;
-            gap: 8px;
-            opacity: 0.75;
+            gap: 12px;
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 50px;
+            opacity: 0.85;
             animation: fadeIn 1.2s ease-in;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            white-space: nowrap;
+        }
+        @media (max-width: 768px) {
+            .powered-by-splash {
+                flex-direction: column;
+                gap: 8px;
+                border-radius: 15px;
+                padding: 12px 24px;
+            }
         }
         .powered-by-splash span {
             font-size: 0.65rem;
@@ -115,7 +130,7 @@
 
     <div class="powered-by-splash">
         <span>Powered by</span>
-        <img src="/img/budalogo.webp" alt="BUDA Logo">
+        <img src="/img/lpsolutionslogo/png/lpsolutionswithe.webp" alt="LPSolutions Logo">
     </div>
 </body>
 </html>

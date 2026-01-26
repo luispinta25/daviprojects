@@ -1,10 +1,10 @@
-const CACHE_NAME = 'daviprojects-v3';
+const CACHE_NAME = 'daviprojects-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
   '/img/logo.webp',
-  '/img/budalogo.webp',
+  '/img/lpsolutionslogo/png/lpsolutionswithe.webp',
   '/src/desktop/index.html',
   '/src/desktop/style.css',
   '/src/desktop/script.js',

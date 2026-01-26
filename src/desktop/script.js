@@ -5,8 +5,9 @@ let tasks = [];
 let currentUserId = null; // Guardar ID del usuario actual
 let currentReplyId = null; // ID del comentario al que se está respondiendo
 let draggedTaskId = null;
-let lastActiveView = 'kanban'; // Persistencia de vista (kanban o history)
-let currentHistoryFolder = null; // Carpeta seleccionada en el historial
+let lastActiveView = 'kanban'; 
+let currentHistoryFolder = null; 
+let globalAllTasks = []; // Caché global para sincronización silenciosa
 
 const STATUS_NAMES = {
     'TODO': 'Por Hacer',
@@ -45,7 +46,8 @@ async function showIdeasView() {
     const fab = document.getElementById('btn-fab-project');
     if (fab) fab.classList.remove('hidden');
 
-    await loadIdeas();
+    renderIdeas();
+    syncDataSilently();
 }
 
 async function loadIdeas() {
@@ -316,6 +318,13 @@ function initIdeasListeners() {
                 audio_url 
             });
 
+            // Registrar historial
+            await Storage.addHistory({
+                accion: 'CREAR_IDEA',
+                detalle: `creó una nueva idea en el banco: *"${titulo}"*`,
+                proyecto_id: null
+            });
+
             // Limpiar y cerrar
             resetIdeaForm();
             closeModals();
@@ -340,14 +349,6 @@ async function toggleIdeaFav(id) {
     try {
         const newStatus = !idea.es_favorito;
         await Storage.updateIdea(id, { es_favorito: newStatus });
-        
-        // Log de favorito
-        await Storage.addHistory({
-            accion: 'FAVORITO_IDEA',
-            detalle: `${newStatus ? 'marcó como favorito' : 'quitó de favoritos'} el chispazo *"${idea.titulo}"*`,
-            proyecto_id: null
-        });
-
         idea.es_favorito = newStatus;
         renderIdeas();
     } catch (e) { console.error(e); }
@@ -362,7 +363,17 @@ async function deleteIdea(id) {
     if (await showCustomConfirm("Eliminar Chispazo", "¿Estás seguro de eliminar este chispazo de forma permanente?", "danger")) {
         try {
             showLoading();
+            const ideaToDelete = ideas.find(i => i.id === id);
             await Storage.deleteIdea(id);
+            
+            if (ideaToDelete) {
+                await Storage.addHistory({
+                    accion: 'ELIMINAR_IDEA',
+                    detalle: `eliminó la idea *"${ideaToDelete.titulo}"* del banco`,
+                    proyecto_id: null
+                });
+            }
+
             ideas = ideas.filter(i => i.id !== id);
             renderIdeas();
             hideLoading();
@@ -620,6 +631,40 @@ async function updateDashboardMetrics() {
     if (countReviewEl) countReviewEl.textContent = review;
 }
 
+// --- SINCRONIZACIÓN SILENCIOSA (BG) ---
+async function syncDataSilently() {
+    try {
+        const [proj, taskList, ideaList] = await Promise.all([
+            Storage.getProjects(),
+            Storage.getTasks(),
+            Storage.getIdeas()
+        ]);
+        
+        // Actualizar globales
+        projects = proj;
+        globalAllTasks = taskList;
+        ideas = ideaList;
+        
+        // Refrescar vistas si están visibles
+        const galleryView = document.getElementById('gallery-view');
+        const projectsView = document.getElementById('projects-view');
+        const ideasView = document.getElementById('ideas-view');
+        
+        if (galleryView && !galleryView.classList.contains('hidden')) {
+            renderProjectGallery('project-gallery', 3, true);
+        } else if (projectsView && !projectsView.classList.contains('hidden')) {
+            renderProjectGallery('full-project-gallery', null, false);
+        } else if (ideasView && !ideasView.classList.contains('hidden')) {
+            renderIdeas();
+        }
+
+        renderProjectList();
+        
+    } catch (e) {
+        console.error("Silent sync failed", e);
+    }
+}
+
 // --- PROJECTS ---
 async function showGallery() {
     currentProject = null;
@@ -632,17 +677,22 @@ async function showGallery() {
     // Ocultar todas las vistas y mostrar el dashboard
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
     document.getElementById('gallery-view').classList.remove('hidden');
-    viewControls.classList.add('hidden');
+    
+    const viewControls = document.getElementById('view-controls');
+    if (viewControls) viewControls.classList.add('hidden');
     
     // Auto-contraer sidebar
-    document.getElementById('sidebar').classList.add('closed');
+    document.getElementById('sidebar')?.classList.add('closed');
 
     // Navegación active
     document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
-    document.getElementById('nav-dashboard').classList.add('active');
+    document.getElementById('nav-dashboard')?.classList.add('active');
 
     renderProjectList();
-    await renderProjectGallery('project-gallery', 3, true);
+    renderProjectGallery('project-gallery', 3, true);
+
+    // Sincronizar en segundo plano
+    syncDataSilently();
 }
 
 async function showFullProjectsView() {
@@ -655,18 +705,24 @@ async function showFullProjectsView() {
 
     // Ocultar todas las vistas y mostrar la de proyectos
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-    document.getElementById('projects-view').classList.remove('hidden');
-    viewControls.classList.add('hidden');
+    const projectsView = document.getElementById('projects-view');
+    if (projectsView) projectsView.classList.remove('hidden');
+
+    const viewControls = document.getElementById('view-controls');
+    if (viewControls) viewControls.classList.add('hidden');
     
     // Auto-contraer sidebar
-    document.getElementById('sidebar').classList.add('closed');
+    document.getElementById('sidebar')?.classList.add('closed');
 
     // Navegación active
     document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
-    document.getElementById('nav-projects').classList.add('active');
+    document.getElementById('nav-projects')?.classList.add('active');
 
     renderProjectList();
-    await renderProjectGallery('full-project-gallery', null, false);
+    renderProjectGallery('full-project-gallery', null, false);
+
+    // Sincronizar en segundo plano
+    syncDataSilently();
 }
 
 async function refreshProjectViews() {
@@ -700,10 +756,15 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
         return;
     }
 
-    // Obtener todas las tareas para calcular porcentajes
+    // Usar caché global si existe, si no, cargar (pero solo una vez)
     let allTasks = [];
     try {
-        allTasks = await Storage.getTasks();
+        if (globalAllTasks.length > 0) {
+            allTasks = globalAllTasks;
+        } else {
+            allTasks = await Storage.getTasks();
+            globalAllTasks = allTasks;
+        }
     } catch (e) {
         console.error("Error fetching tasks for gallery:", e);
     }
@@ -1074,15 +1135,17 @@ document.getElementById('save-project').addEventListener('click', async () => {
         
         // Si venimos de la vista de Ideas y estamos convirtiendo una
         if (window.convertingIdeaId) {
-            const ideaObj = ideas.find(i => i.id === window.convertingIdeaId);
+            const ideaConverted = ideas.find(i => i.id === window.convertingIdeaId);
             await Storage.updateIdea(window.convertingIdeaId, { proyecto_id: newProj.id });
             
             // Log de conversión
-            await Storage.addHistory({
-                accion: 'CONVERTIR_IDEA',
-                detalle: `convirtió el chispazo *"${ideaObj?.titulo || 'sin título'}"* en un proyecto real`,
-                proyecto_id: newProj.id
-            });
+            if (ideaConverted) {
+                await Storage.addHistory({
+                    accion: 'CONVERTIR_IDEA',
+                    detalle: `transformó la idea *"${ideaConverted.titulo}"* en este nuevo proyecto`,
+                    proyecto_id: newProj.id
+                });
+            }
 
             window.convertingIdeaId = null;
             // Refrescar ideas si la vista está activa

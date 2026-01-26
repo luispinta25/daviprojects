@@ -45,12 +45,19 @@
 
         .powered-by-loading {
             position: absolute;
-            bottom: 50px;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 8px;
-            opacity: 0.7;
+            padding: 12px 24px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 15px;
+            opacity: 0.85;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            white-space: nowrap;
         }
         .powered-by-loading span {
             font-size: 0.65rem;
@@ -179,7 +186,7 @@
         
         <div class="powered-by-loading">
             <span>Powered by</span>
-            <img src="../../img/budalogo.webp" alt="BUDA Logo">
+            <img src="../../img/lpsolutionslogo/png/lpsolutionswithe.webp" alt="LPSolutions Logo">
         </div>
     </div>
     <div id="mobile-app">
@@ -237,6 +244,13 @@
                     <i class="fas fa-search"></i>
                     <input type="text" id="search-projects-mobile" placeholder="Buscar proyecto...">
                 </div>
+
+                <div id="projects-loader-container" class="ideas-loader hidden">
+                    <div class="loader-spinner"></div>
+                    <div id="project-loader-quote-text" class="loader-quote">"Gestión inteligente de proyectos..."</div>
+                    <div id="project-loader-quote-author" class="loader-author">LPSolutions</div>
+                </div>
+
                 <div id="mobile-full-projects-list" class="mobile-project-gallery">
                     <!-- Lista completa -->
                 </div>
@@ -252,10 +266,9 @@
                         <h3 id="mobile-project-name">Selecciona un proyecto</h3>
                         <button id="btn-project-settings" class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
                     </div>
-                    <div id="project-audio-player-container" class="hidden" style="padding: 10px 15px; background: rgba(5, 166, 75, 0.1); border-bottom: 1px solid rgba(5, 166, 75, 0.2);">
-                        <p style="font-size: 0.8rem; color: #05A64B; margin-bottom: 5px; font-weight: 600;"><i class="fas fa-play-circle"></i> Audio de la Idea Original</p>
-                        <audio id="mobile-project-audio-player" controls style="width: 100%; height: 35px;"></audio>
-                    </div>
+                    <!-- Reproductor elegante de proyecto si existe audio -->
+                    <div id="project-audio-header-container" class="hidden" style="margin-bottom: 1rem;"></div>
+
                     <div class="status-scroll-container">
                         <div class="status-filter" id="status-filter">
                             <button class="filter-pill active" data-status="TODO">Pendiente</button>
@@ -282,25 +295,56 @@
                 </div>
             </section>
 
-            <!-- Vista de Ideas -->
+            <!-- Vista de Banco de Ideas -->
             <section id="mobile-ideas-view" class="view hidden">
                 <div class="view-header-fixed">
                     <h3>Banco de Ideas</h3>
-                </div>
-                <div class="mobile-ideas-container">
-                    <div id="ideas-mobile-fav-grid" class="mobile-ideas-grid">
-                        <!-- Fav ideas -->
+                    <div class="header-actions">
                     </div>
+                </div>
+
+                <!-- Input rápido para ideas -->
+                <div class="idea-quick-input">
+                    <input type="text" id="mob-idea-title" placeholder="Título de la idea...">
+                    <textarea id="mob-idea-content" placeholder="Escribe tu idea aquí..."></textarea>
                     
-                    <h4 id="label-mobile-other-ideas" class="mobile-ideas-label hidden">OTRAS IDEAS</h4>
-                    <div id="ideas-mobile-main-grid" class="mobile-ideas-grid">
-                        <!-- Main ideas -->
+                    <div class="idea-voice-row" id="voice-row-mobile">
+                        <button class="btn-record" id="mob-btn-record">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                        <span class="voice-status" id="mob-record-status">Grabar nota de voz</span>
+                        <div id="mob-audio-preview" class="hidden" style="display:flex; align-items:center; gap:8px;">
+                            <span style="color:var(--primary); font-size:0.8rem; font-weight:600;"><i class="fas fa-check-circle"></i> Audio listo</span>
+                            <button class="btn-icon-mini" onclick="discardMobileAudio()" style="color:var(--red); background:none; border:none;"><i class="fas fa-times"></i></button>
+                        </div>
                     </div>
 
-                    <h4 id="label-mobile-converted-ideas" class="mobile-ideas-label hidden">PROYECTOS CREADOS</h4>
-                    <div id="ideas-mobile-converted-grid" class="mobile-ideas-grid" style="opacity: 0.7;">
-                        <!-- Converted ideas -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                        <div class="idea-color-picker" style="margin: 0;">
+                            <div class="color-opt active" data-color="#fff9c4" style="background: #fff9c4;"></div>
+                            <div class="color-opt" data-color="#ffccbc" style="background: #ffccbc;"></div>
+                            <div class="color-opt" data-color="#c8e6c9" style="background: #c8e6c9;"></div>
+                            <div class="color-opt" data-color="#bbdefb" style="background: #bbdefb;"></div>
+                            <div class="color-opt" data-color="#e1bee7" style="background: #e1bee7;"></div>
+                        </div>
+                        <button id="btn-save-idea-inline" class="btn-save-inline">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
                     </div>
+                </div>
+
+                <div class="section-title">
+                    <h3>Mis Ideas</h3>
+                </div>
+
+                <div id="ideas-loader-container" class="ideas-loader hidden">
+                    <div class="loader-spinner"></div>
+                    <div id="loader-quote-text" class="loader-quote">"Cargando tus ideas brillantes..."</div>
+                    <div id="loader-quote-author" class="loader-author">LPSolutions</div>
+                </div>
+                
+                <div id="mobile-ideas-grid" class="mobile-ideas-grid" style="padding-bottom:100px;">
+                    <!-- Ideas aquí -->
                 </div>
             </section>
         </main>
@@ -341,10 +385,6 @@
                 <button class="action-card" id="btn-create-project-sheet">
                     <div class="act-icon green"><i class="fas fa-folder-plus"></i></div>
                     <span>Nuevo Proyecto</span>
-                </button>
-                <button class="action-card" id="btn-create-idea-sheet">
-                    <div class="act-icon yellow"><i class="fas fa-lightbulb"></i></div>
-                    <span>Nueva Idea</span>
                 </button>
             </div>
         </div>
@@ -419,59 +459,6 @@
             </div>
             <div class="sheet-footer">
                 <button class="btn-confirm-full" id="save-task-mobile">Guardar Tarea</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal Formulario Idea (Voz y Texto) -->
-    <div id="mobile-modal-idea" class="mobile-bottom-sheet full-screen hidden">
-        <div class="sheet-content">
-            <div class="sheet-handle"></div>
-            <div class="sheet-header">
-                <h3 id="mobile-idea-title-header">Anota tu Idea</h3>
-                <button onclick="closeMobileSheet('mobile-modal-idea')" class="btn-icon circle"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="sheet-body">
-                <!-- STEP 1: Capture -->
-                <div id="m-idea-step-1">
-                    <div class="mobile-view-switch" style="margin-bottom: 2rem;">
-                        <button id="m-btn-mode-text" class="active">Texto</button>
-                        <button id="m-btn-mode-voice">Voz</button>
-                    </div>
-
-                    <div id="m-idea-text-box" class="input-group">
-                        <label>Contenido de la Idea</label>
-                        <textarea id="m-idea-content" placeholder="¿Qué tienes en mente?..." rows="8" style="background: #fffcf0;"></textarea>
-                    </div>
-
-                    <div id="m-idea-voice-box" class="input-group hidden">
-                        <div class="mobile-rec-ui" style="background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 1rem; padding: 2rem; display: flex; flex-direction: column; align-items: center; gap: 1.5rem;">
-                            <div id="m-idea-rec-timer" style="font-family: monospace; font-size: 2rem; color: #64748b;">00:00</div>
-                            <div class="rec-buttons" style="display: flex; gap: 1.5rem;">
-                                <button id="m-btn-idea-rec" class="btn-rec-mobile" style="width: 70px; height: 70px; border-radius: 50%; background: #ef4444; border: none; color: white; font-size: 1.8rem;"><i class="fas fa-microphone"></i></button>
-                                <button id="m-btn-idea-stop" class="btn-stop-mobile hidden" style="width: 70px; height: 70px; border-radius: 50%; background: #0f172a; border: none; color: white; font-size: 1.8rem;"><i class="fas fa-stop"></i></button>
-                            </div>
-                            <div id="m-idea-audio-preview" class="hidden" style="width: 100%;">
-                                <audio id="m-audio-idea-play" controls style="width: 100%;"></audio>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- STEP 2: Title -->
-                <div id="m-idea-step-2" class="hidden">
-                    <div class="input-group">
-                        <label>Dale un título a tu chispazo</label>
-                        <input type="text" id="m-idea-title-input" placeholder="Ej: Nueva app de cocina">
-                    </div>
-                </div>
-            </div>
-            <div class="sheet-footer">
-                <button id="m-btn-idea-next" class="btn-confirm-full">Siguiente <i class="fas fa-arrow-right"></i></button>
-                <div id="m-idea-final-actions" class="hidden" style="display: flex; gap: 1rem; width: 100%;">
-                    <button id="m-btn-idea-back" class="btn-confirm-full" style="background: #f1f5f9; color: #64748b; flex: 0.4;">Atrás</button>
-                    <button id="m-save-idea" class="btn-confirm-full" style="background: #fbbf24; color: #082359; flex: 1;">Guardar Idea</button>
-                </div>
             </div>
         </div>
     </div>
@@ -594,6 +581,28 @@
                             <button id="btn-add-ordered-mobile"><i class="fas fa-plus"></i></button>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Detalle/Ajustes de Proyecto -->
+    <div id="mobile-project-details-modal" class="mobile-bottom-sheet full-screen hidden">
+        <div class="sheet-content">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <button onclick="closeMobileSheet('mobile-project-details-modal')" class="btn-icon circle"><i class="fas fa-arrow-left"></i></button>
+                <h3>Información del Proyecto</h3>
+                <button id="btn-delete-project-mobile" class="btn-icon circle" style="color:var(--red);"><i class="fas fa-trash-alt"></i></button>
+            </div>
+            <div class="sheet-body">
+                <div class="input-group">
+                    <label>Nombre del Proyecto</label>
+                    <h2 id="proj-detail-name" style="font-weight: 800; color: #082359;"></h2>
+                </div>
+                <div class="input-group">
+                    <label>Descripción</label>
+                    <div id="proj-detail-desc" style="font-size: 0.95rem; line-height: 1.6; color: var(--text-muted); background: rgba(0,0,0,0.02); padding: 15px; border-radius: 12px;"></div>
                 </div>
             </div>
         </div>

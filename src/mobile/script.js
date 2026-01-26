@@ -7,13 +7,6 @@ let currentTaskId = null;
 let currentAttachment = null;
 let currentMobileReplyId = null; // Para respuestas style WhatsApp
 
-// --- IDEAS LOGIC ---
-let ideas = [];
-let currentIdeaAudioBlob = null;
-let ideaRecorder = null;
-let ideaAudioChunks = [];
-let ideaTimerInterval = null;
-
 // --- NAVEGACIÓN ENTRE TABS ---
 document.addEventListener('click', (e) => {
     if (e.target.classList.contains('tab-btn')) {
@@ -32,6 +25,435 @@ let currentStatusFilter = 'TODO';
 let currentHistoryFolder = null; // Carpeta de historial seleccionada
 let currentElements = []; // Elementos de la tarea actual
 
+// --- IDEAS MOBILE ---
+let mobileIdeas = [];
+let selectedIdeaColor = '#fff9c4';
+let mediaRecorder = null;
+let audioChunks = [];
+let recordedAudioBlob = null;
+
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = () => {
+            recordedAudioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+            document.getElementById('mob-record-status').classList.add('hidden');
+            document.getElementById('mob-audio-preview').classList.remove('hidden');
+        };
+
+        mediaRecorder.start();
+        document.getElementById('mob-btn-record').classList.add('recording');
+        document.getElementById('mob-record-status').textContent = "Grabando... Pulsa para detener";
+    } catch (err) {
+        console.error("Error al acceder al micro:", err);
+        showMobileToast("Error", "No se pudo acceder al micrófono", true);
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        document.getElementById('mob-btn-record').classList.remove('recording');
+    }
+}
+
+function discardMobileAudio() {
+    recordedAudioBlob = null;
+    document.getElementById('mob-audio-preview').classList.add('hidden');
+    document.getElementById('mob-record-status').classList.remove('hidden');
+    document.getElementById('mob-record-status').textContent = "Grabar nota de voz";
+}
+
+const PROJECT_QUOTES = [
+    { text: "Lo que no se define no se puede medir. Lo que no se mide, no se puede mejorar.", author: "Peter Drucker" },
+    { text: "La planificación a largo plazo no es pensar en decisiones futuras, sino en el futuro de las decisiones presentes.", author: "Peter Drucker" },
+    { text: "Un proyecto sin un camino crítico es como un barco sin timón.", author: "D. Meyer" },
+    { text: "Cualquier cosa que valga la pena hacer, vale la pena hacerla bien.", author: "Lord Chesterfield" },
+    { text: "El trabajo en equipo es la capacidad de trabajar juntos hacia una visión común.", author: "Andrew Carnegie" },
+    { text: "La mejor forma de predecir el futuro es creándolo.", author: "Peter Drucker" },
+    { text: "El éxito es la suma de pequeños esfuerzos que se repiten cada día.", author: "Robert Collier" }
+];
+
+const IDEA_QUOTES = [
+    { text: "La creatividad es la inteligencia divirtiéndose.", author: "Albert Einstein" },
+    { text: "Cada gran sueño comienza con un soñador.", author: "Harriet Tubman" },
+    { text: "La mejor forma de tener una buena idea es tener muchas ideas.", author: "Linus Pauling" },
+    { text: "Una idea no vale nada si no se lleva a cabo.", author: "Anónimo" },
+    { text: "No esperes. El tiempo nunca será el adecuado.", author: "Napoleon Hill" }
+];
+
+async function loadMobileIdeas(silentMode = false) {
+    const loader = document.getElementById('ideas-loader-container');
+    const grid = document.getElementById('mobile-ideas-grid');
+    const quoteText = document.getElementById('loader-quote-text');
+    const quoteAuthor = document.getElementById('loader-quote-author');
+
+    if (loader && IDEA_QUOTES && !silentMode) {
+        const randomQuote = IDEA_QUOTES[Math.floor(Math.random() * IDEA_QUOTES.length)];
+        if (quoteText) quoteText.textContent = `"${randomQuote.text}"`;
+        if (quoteAuthor) quoteAuthor.textContent = `– ${randomQuote.author}`;
+        loader.classList.remove('hidden');
+    }
+    if (grid && !silentMode) grid.style.opacity = '0.3';
+
+    try {
+        mobileIdeas = await Storage.getIdeas();
+        renderMobileIdeas();
+    } catch (e) {
+        console.error("Error loading ideas", e);
+    } finally {
+        if (loader) loader.classList.add('hidden');
+        if (grid) grid.style.opacity = '1';
+    }
+}
+
+function renderMobileIdeas() {
+    const grid = document.getElementById('mobile-ideas-grid');
+    if (!grid) return;
+
+    // Clasificación solicitada: 
+    // 1. Favoritos sin proyecto
+    // 2. Pendientes (sin proyecto, no fav)
+    // 3. Favoritos con proyecto
+    // 4. Con proyecto (no fav)
+    const sorted = [...mobileIdeas].sort((a, b) => {
+        const aHasProj = !!a.proyecto_id && projects.some(p => p.id === a.proyecto_id);
+        const bHasProj = !!b.proyecto_id && projects.some(p => p.id === b.proyecto_id);
+        
+        // Prioridad 1: Sin proyecto arriba de Con proyecto
+        if (!aHasProj && bHasProj) return -1;
+        if (aHasProj && !bHasProj) return 1;
+        
+        // Prioridad 2: Favoritos arriba
+        if (a.es_favorito && !b.es_favorito) return -1;
+        if (!a.es_favorito && b.es_favorito) return 1;
+
+        // Prioridad 3: Fecha descendente
+        return new Date(b.created_at) - new Date(a.created_at);
+    });
+
+    grid.innerHTML = sorted.length === 0 
+        ? '<div style="grid-column: 1/-1; text-align:center; padding:2rem; opacity:0.5;">No hay ideas guardadas</div>'
+        : sorted.map(idea => {
+            const hasAudio = !!idea.audio_url;
+            const isFav = !!idea.es_favorito;
+            const hasProject = !!idea.proyecto_id && projects.some(p => p.id === idea.proyecto_id);
+
+            return `
+            <div class="mobile-idea-card popIn" style="background: ${idea.color || '#fff9c4'}">
+                <div class="idea-header" style="display:flex; justify-content:flex-end;">
+                    <button class="btn-idea-mini ${isFav ? 'active-fav' : ''}" onclick="toggleIdeaFavMobile('${idea.id}', ${isFav})">
+                        <i class="${isFav ? 'fas' : 'far'} fa-star"></i>
+                    </button>
+                </div>
+                <div class="idea-body" style="flex:1;">
+                    <h4>${idea.titulo}</h4>
+                    <p>${idea.contenido || ''}</p>
+                    
+                    ${hasAudio ? `
+                        <div class="idea-card-audio" onclick="playMobileAudio('${idea.audio_url}')">
+                            <i class="fas fa-play"></i> <span>Nota de voz</span>
+                        </div>
+                    ` : ''}
+
+                    ${hasProject ? `
+                        <div class="idea-project-link">
+                            <i class="fas fa-rocket"></i> Proyecto Activo
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="idea-card-actions">
+                    <button class="btn-idea-mini convert-btn" onclick="handleConvertIdeaToProjectMobile('${idea.id}')" title="Convertir">
+                        <i class="fas fa-rocket"></i>
+                    </button>
+                    <button class="btn-idea-mini" onclick="deleteMobileIdea('${idea.id}', ${hasProject})" title="Borrar">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </div>
+            </div>
+            `;
+        }).join('');
+}
+
+async function handleSaveIdeaMobile() {
+    const title = document.getElementById('mob-idea-title').value;
+    const content = document.getElementById('mob-idea-content').value;
+    
+    if (!title.trim()) {
+        showMobileToast("Error", "La idea necesita un título", true);
+        return;
+    }
+
+    // Clonar estado actual por si falla la DB
+    const backupIdeas = [...mobileIdeas];
+    
+    // Crear objeto optimista temporal
+    const tempId = 'temp_' + Date.now();
+    const optimisticIdea = {
+        id: tempId,
+        titulo: title,
+        contenido: content,
+        color: selectedIdeaColor,
+        audio_url: recordedAudioBlob ? 'pendiente' : null,
+        es_favorito: false,
+        created_at: new Date().toISOString()
+    };
+
+    // Actualizar UI inmediatamente
+    mobileIdeas = [optimisticIdea, ...mobileIdeas];
+    renderMobileIdeas();
+    document.getElementById('mob-idea-title').value = '';
+    document.getElementById('mob-idea-content').value = '';
+
+    try {
+        let audioUrl = null;
+        if (recordedAudioBlob) {
+            const fileName = `idea_audio_${Date.now()}.mp3`;
+            audioUrl = await Storage.uploadFile(recordedAudioBlob, `ideas/${fileName}`);
+        }
+
+        await Storage.addIdea({
+            titulo: title,
+            contenido: content,
+            color: selectedIdeaColor,
+            audio_url: audioUrl
+        });
+
+        // Registrar acción en historial profesional
+        await Storage.addHistory({
+            accion: 'CREAR_IDEA',
+            detalle: `anotó una nueva idea: *"${title}"*`
+        });
+        
+        discardMobileAudio();
+        // Recargar para obtener el ID real de Supabase
+        await loadMobileIdeas();
+    } catch (e) {
+        showMobileToast("Error", "No se pudo guardar la idea", true);
+        mobileIdeas = backupIdeas;
+        renderMobileIdeas();
+    } finally {
+        // Nada
+    }
+}
+
+async function toggleIdeaFavMobile(id, current) {
+    // Optimista
+    const idea = mobileIdeas.find(i => i.id === id);
+    if (!idea) return;
+    
+    const originalValue = idea.es_favorito;
+    idea.es_favorito = !current;
+    renderMobileIdeas();
+
+    try {
+        await Storage.updateIdea(id, { es_favorito: !current });
+    } catch (e) {
+        showMobileToast("Error", "No se pudo actualizar favorito", true);
+        idea.es_favorito = originalValue;
+        renderMobileIdeas();
+    } finally {
+        // Nada
+    }
+}
+
+async function handleConvertIdeaToProjectMobile(id) {
+    const idea = mobileIdeas.find(i => i.id === id);
+    if (!idea) return;
+
+    // Validación dinámica: verificar si el proyecto vinculado realmente existe
+    const hasProject = !!idea.proyecto_id && projects.some(p => p.id === idea.proyecto_id);
+
+    if (hasProject) {
+        showMobileToast("Aviso", "Esta idea ya es un proyecto activo", true);
+        return;
+    }
+
+    if (!await showMobileConfirm("Subir a Proyecto", `¿Convertir "${idea.titulo}" en un nuevo proyecto?`, "info")) return;
+
+    try {
+        let finalDesc = idea.contenido || 'Proyecto creado desde idea.';
+        if (idea.audio_url) {
+            finalDesc += `\n[Audio: ${idea.audio_url}]`;
+        }
+
+        const newProj = await Storage.addProject({
+            name: idea.titulo,
+            description: finalDesc,
+            fecha_vencimiento: null
+        });
+
+        // Vincular idea al proyecto
+        await Storage.updateIdea(idea.id, { proyecto_id: newProj.id });
+        
+        // Log de conversión
+        await Storage.addHistory({
+            accion: 'CONVERTIR_IDEA',
+            detalle: `transformó la idea *"${idea.titulo}"* en este nuevo proyecto`,
+            proyecto_id: newProj.id
+        });
+
+        showMobileToast("Éxito", "Proyecto creado correctamente");
+        switchView('mobile-all-projects-view');
+        await loadData();
+        await loadMobileIdeas();
+    } catch (e) {
+        console.error("Error converting idea", e);
+        showMobileToast("Error", "No se pudo convertir a proyecto", true);
+    }
+}
+
+async function deleteMobileIdea(id, hasProject) {
+    if (hasProject) {
+        showMobileToast("Bloqueado", "No puedes borrar una idea con proyecto activo", true);
+        return;
+    }
+
+    if (!await showMobileConfirm("Eliminar Idea", "¿Eliminar esta idea permanentemente?", "danger")) return;
+
+    const ideaToDelete = mobileIdeas.find(i => i.id === id);
+
+    // Optimista
+    const backup = [...mobileIdeas];
+    mobileIdeas = mobileIdeas.filter(i => i.id !== id);
+    renderMobileIdeas();
+
+    try {
+        await Storage.deleteIdea(id);
+        if (ideaToDelete) {
+            await Storage.addHistory({
+                accion: 'ELIMINAR_IDEA',
+                detalle: `eliminó la idea *"${ideaToDelete.titulo}"*`
+            });
+        }
+    } catch (e) {
+        showMobileToast("Error", "No se pudo eliminar de la base de datos", true);
+        mobileIdeas = backup;
+        renderMobileIdeas();
+    } finally {
+        // Nada
+    }
+}
+
+function playMobileAudio(url) {
+    const audio = new Audio(url);
+    audio.play();
+}
+
+function extractAudiosFromText(text) {
+    if (!text) return { cleanText: '', audios: [] };
+    
+    let cleanText = text;
+    const audios = [];
+
+    // Patrón PC: [Audio: URL]
+    const patternRegex = /\[Audio:\s*(https?:\/\/[^\]\s]+)\]/gi;
+    let match;
+    while ((match = patternRegex.exec(text)) !== null) {
+        if (!audios.includes(match[1])) {
+            audios.push(match[1]);
+        }
+        cleanText = cleanText.replace(match[0], '');
+    }
+
+    // URLs sueltas
+    const looseRegex = /(https?:\/\/[^\s]+?\.(mp3|wav|ogg|m4a|aac|flac)(\?[^\s]*)?)/gi;
+    while ((match = looseRegex.exec(cleanText)) !== null) {
+        if (!audios.includes(match[1])) {
+            audios.push(match[1]);
+        }
+    }
+
+    return { cleanText: cleanText.trim(), audios };
+}
+
+function renderDescriptionWithAudios(containerEl, text) {
+    const { cleanText, audios } = extractAudiosFromText(text);
+    containerEl.textContent = cleanText || (text ? '' : 'Sin descripción.');
+
+    if (audios.length > 0) {
+        audios.forEach((url, index) => {
+            const div = document.createElement('div');
+            div.style.marginTop = '12px';
+            div.innerHTML = `<p style="font-size: 0.75rem; margin-bottom: 5px; font-weight: 700; color: var(--primary);">AUDIO ADJUNTO:</p>` + renderElegantAudioPlayer(url, `desc-${Math.random().toString(36).substr(2, 9)}`);
+            containerEl.appendChild(div);
+        });
+    }
+}
+
+function renderElegantAudioPlayer(url, id) {
+    return `
+        <div class="elegant-audio-glass" onclick="event.stopPropagation()">
+            <div class="audio-controls-mobile">
+                <button class="mob-audio-play-btn" id="play-btn-${id}" onclick="toggleMobileAudio('${url}', '${id}')">
+                    <i class="fas fa-play"></i>
+                </button>
+                <div class="mob-audio-progress">
+                    <div class="mob-audio-fill" id="fill-${id}"></div>
+                </div>
+                <div class="mob-audio-time" id="time-${id}">0:00</div>
+                <button class="btn-icon-mini" onclick="Storage.downloadFile('${url}', 'audio-${id}.mp3', this)" style="color:var(--text-muted); font-size: 0.8rem; margin-left: 5px;">
+                    <i class="fas fa-download"></i>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+let activeAudio = null;
+let activeAudioId = null;
+
+function toggleMobileAudio(url, id) {
+    if (activeAudio && activeAudioId === id) {
+        if (activeAudio.paused) {
+            activeAudio.play();
+            document.getElementById(`play-btn-${id}`).innerHTML = '<i class="fas fa-pause"></i>';
+        } else {
+            activeAudio.pause();
+            document.getElementById(`play-btn-${id}`).innerHTML = '<i class="fas fa-play"></i>';
+        }
+        return;
+    }
+
+    if (activeAudio) {
+        activeAudio.pause();
+        const prevBtn = document.getElementById(`play-btn-${activeAudioId}`);
+        if (prevBtn) prevBtn.innerHTML = '<i class="fas fa-play"></i>';
+    }
+
+    activeAudio = new Audio(url);
+    activeAudioId = id;
+
+    activeAudio.ontimeupdate = () => {
+        const fill = document.getElementById(`fill-${id}`);
+        const time = document.getElementById(`time-${id}`);
+        if (fill && time) {
+            const perc = (activeAudio.currentTime / activeAudio.duration) * 100;
+            fill.style.width = `${perc}%`;
+            
+            const mins = Math.floor(activeAudio.currentTime / 60);
+            const secs = Math.floor(activeAudio.currentTime % 60);
+            time.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+    };
+
+    activeAudio.onended = () => {
+        document.getElementById(`play-btn-${id}`).innerHTML = '<i class="fas fa-play"></i>';
+    };
+
+    activeAudio.play();
+    document.getElementById(`play-btn-${id}`).innerHTML = '<i class="fas fa-pause"></i>';
+}
+
 // Elementos del DOM
 const views = document.querySelectorAll('.view');
 const navItems = document.querySelectorAll('.nav-item');
@@ -40,8 +462,6 @@ const fullProjectsList = document.getElementById('mobile-full-projects-list');
 const taskList = document.getElementById('mobile-task-list');
 const projectNameTitle = document.getElementById('mobile-project-name');
 const statusFilters = document.querySelectorAll('.filter-pill');
-const projectAudioContainer = document.getElementById('project-audio-player-container');
-const projectAudioPlayer = document.getElementById('mobile-project-audio-player');
 
 // --- INICIALIZACIÓN ---
 async function initMobile() {
@@ -67,7 +487,10 @@ async function initMobile() {
     navItems.forEach(item => {
         item.onclick = () => {
             const targetView = item.dataset.view;
-            if (targetView) switchView(targetView);
+            if (targetView) {
+                switchView(targetView);
+                if (targetView === 'mobile-ideas-view') loadMobileIdeas();
+            }
         };
     });
 
@@ -76,6 +499,32 @@ async function initMobile() {
     document.getElementById('btn-new-project-mobile').onclick = () => openMobileSheet('mobile-modal-project');
     document.getElementById('mobile-btn-logout').onclick = () => AuthService.logout();
     
+    document.getElementById('btn-project-settings').onclick = openProjectDetails;
+    document.getElementById('btn-delete-project-mobile').onclick = handleDeleteProjectMobile;
+
+    // --- INICIALIZAR IDEAS ---
+    const btnSaveInline = document.getElementById('btn-save-idea-inline');
+    if (btnSaveInline) btnSaveInline.onclick = handleSaveIdeaMobile;
+    
+    const recBtn = document.getElementById('mob-btn-record');
+    if (recBtn) {
+        recBtn.onclick = () => {
+            if (recBtn.classList.contains('recording')) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        };
+    }
+
+    document.querySelectorAll('.color-opt').forEach(opt => {
+        opt.onclick = () => {
+            document.querySelectorAll('.color-opt').forEach(o => o.classList.remove('active'));
+            opt.classList.add('active');
+            selectedIdeaColor = opt.dataset.color;
+        };
+    });
+
     // Filtros de estado
     statusFilters.forEach(btn => {
         btn.onclick = () => {
@@ -99,16 +548,9 @@ async function initMobile() {
         closeMobileSheet('mobile-modal-actions');
         openMobileSheet('mobile-modal-project');
     };
-    document.getElementById('btn-create-idea-sheet').onclick = () => {
-        closeMobileSheet('mobile-modal-actions');
-        openMobileIdeaModal();
-    };
 
     document.getElementById('save-task-mobile').onclick = handleSaveTask;
     
-    // Inicializar Ideas
-    initMobileIdeas();
-
     // --- LÓGICA DE BANNER iOS (Si viene de Safari) ---
     const params = new URLSearchParams(window.location.search);
     if (params.get('safari') === '1') {
@@ -257,14 +699,34 @@ function updateMobilePriorityUI(level, prefix = 'mobile') {
 }
 
 // --- CARGA DE DATOS ---
-async function loadData() {
-    projects = await Storage.getProjects();
-    allTasks = await Storage.getTasks(); // Cargar todas para métricas
+async function loadData(silentMode = false) {
+    const loader = document.getElementById('projects-loader-container');
+    const list = document.getElementById('mobile-full-projects-list');
     
-    updateMetrics();
-    renderProjectGalleries();
-    if (document.getElementById('mobile-history-view').classList.contains('active')) {
-        renderHistory();
+    if (loader && !silentMode) {
+        const randomQuote = PROJECT_QUOTES[Math.floor(Math.random() * PROJECT_QUOTES.length)];
+        const qText = document.getElementById('project-loader-quote-text');
+        const qAuthor = document.getElementById('project-loader-quote-author');
+        if (qText) qText.textContent = `"${randomQuote.text}"`;
+        if (qAuthor) qAuthor.textContent = `– ${randomQuote.author}`;
+        loader.classList.remove('hidden');
+    }
+    if (list) list.style.opacity = '0.3';
+
+    try {
+        projects = await Storage.getProjects();
+        allTasks = await Storage.getTasks();
+        
+        updateMetrics();
+        renderProjectGalleries();
+        if (document.getElementById('mobile-history-view').classList.contains('active')) {
+            renderHistory();
+        }
+    } catch (e) {
+        console.error("Error loading data", e);
+    } finally {
+        if (loader) loader.classList.add('hidden');
+        if (list) list.style.opacity = '1';
     }
 }
 
@@ -306,6 +768,15 @@ function switchView(viewId) {
     target.classList.remove('hidden');
     target.classList.add('active', 'fadeIn');
 
+    // Cargas automáticas por vista (Modo Silencioso)
+    if (viewId === 'mobile-gallery-view' || viewId === 'mobile-all-projects-view') {
+        loadData(true);
+    } else if (viewId === 'mobile-history-view') {
+        renderHistory();
+    } else if (viewId === 'mobile-ideas-view') {
+        loadMobileIdeas(true);
+    }
+
     // Actualizar nav bottom
     navItems.forEach(item => {
         item.classList.remove('active');
@@ -330,24 +801,15 @@ function switchView(viewId) {
         btnAddMain.onclick = () => {
             openMobileSheet('mobile-modal-project');
         };
-    } else if (viewId === 'mobile-ideas-view') {
-        // Modo Ideas (Amarillo)
-        btnAddMain.classList.remove('task-mode');
-        btnAddMain.classList.add('idea-mode');
-        btnAddMain.onclick = () => openMobileIdeaModal();
     } else {
         // Otros (Selector genérico)
-        btnAddMain.classList.remove('task-mode', 'idea-mode');
+        btnAddMain.classList.remove('task-mode');
         btnAddMain.onclick = () => openMobileSheet('mobile-modal-actions');
     }
 
     if (viewId === 'mobile-history-view') {
         currentHistoryFolder = null; // Reset carpetas al entrar
         renderHistory();
-    }
-
-    if (viewId === 'mobile-ideas-view') {
-        loadMobileIdeas();
     }
 }
 
@@ -399,10 +861,49 @@ async function createProject(nombre, descripcion = '', fecha_vencimiento = null)
 
         showMobileToast("Éxito", "Proyecto creado correctamente");
         await loadData();
-        return newProj;
     } catch (e) {
         showMobileToast("Error", "No se pudo crear el proyecto", true);
-        return null;
+    }
+}
+
+function openProjectDetails() {
+    const project = projects.find(p => p.id === currentProjectId);
+    if (!project) return;
+
+    document.getElementById('proj-detail-name').textContent = project.nombre;
+    const descEl = document.getElementById('proj-detail-desc');
+    renderDescriptionWithAudios(descEl, project.descripcion || 'Sin descripción.');
+    
+    openMobileSheet('mobile-project-details-modal');
+}
+
+async function handleDeleteProjectMobile() {
+    if (!currentProjectId) return;
+    if (!await showMobileConfirm("Eliminar Proyecto", "¿Estás seguro de eliminar todo el proyecto? Esta acción no se puede deshacer.", "danger")) return;
+
+    try {
+        await Storage.deleteProject(currentProjectId);
+        showMobileToast("Éxito", "Proyecto eliminado");
+        closeMobileSheet('mobile-project-details-modal');
+        switchView('mobile-gallery-view');
+        await loadData();
+        await loadMobileIdeas();
+    } catch (e) {
+        showMobileToast("Error", "No se pudo eliminar", true);
+    }
+}
+
+function renderDescriptionWithAudios(containerEl, text) {
+    containerEl.textContent = text;
+    const audioRegex = /(https?:\/\/[^\s]+?\.(mp3|wav|ogg|m4a|aac|flac)(\?[^\s]*)?)/gi;
+    const matches = text.match(audioRegex);
+    if (matches) {
+        matches.forEach((url, index) => {
+            const div = document.createElement('div');
+            div.style.marginTop = '12px';
+            div.innerHTML = `<p style="font-size: 0.75rem; margin-bottom: 5px; font-weight: 700; color: var(--primary);">AUDIO ADJUNTO:</p>` + renderElegantAudioPlayer(url, `desc-${Math.random().toString(36).substr(2, 9)}`);
+            containerEl.appendChild(div);
+        });
     }
 }
 
@@ -413,16 +914,20 @@ async function selectProject(id) {
 
     projectNameTitle.textContent = project.nombre;
     
-    // Reproductor de audio si viene de una idea
-    const description = project.descripcion || "";
-    const audioMatch = description.match(/\[Audio:\s*(https?:\/\/[^\]\s]+)\]/);
+    // Header Audio Player (si el proyecto tiene audio)
+    const headerAudioContainer = document.getElementById('project-audio-header-container');
+    const { audios } = extractAudiosFromText(project.descripcion);
     
-    if (audioMatch && audioMatch[1] && projectAudioContainer && projectAudioPlayer) {
-        projectAudioPlayer.src = audioMatch[1];
-        projectAudioContainer.classList.remove('hidden');
-    } else {
-        if (projectAudioPlayer) projectAudioPlayer.src = "";
-        if (projectAudioContainer) projectAudioContainer.classList.add('hidden');
+    if (audios.length > 0 && headerAudioContainer) {
+        headerAudioContainer.innerHTML = renderElegantAudioPlayer(audios[0], 'project-header');
+        headerAudioContainer.classList.remove('hidden');
+    } else if (headerAudioContainer) {
+        headerAudioContainer.classList.add('hidden');
+        headerAudioContainer.innerHTML = '';
+        if (activeAudio && activeAudioId === 'project-header') {
+            activeAudio.pause();
+            activeAudio = null;
+        }
     }
 
     switchView('mobile-tasks-view');
@@ -542,7 +1047,8 @@ async function openTaskDetail(id) {
     if (!task) return;
 
     document.getElementById('detail-task-title').textContent = task.titulo;
-    document.getElementById('detail-task-desc').textContent = task.descripcion || 'Sin descripción adicional.';
+    const descEl = document.getElementById('detail-task-desc');
+    renderDescriptionWithAudios(descEl, task.descripcion || 'Sin descripción adicional.');
     
     // Prioridad y Vencimiento
     updateMobilePriorityUI(task.prioridad || 1, 'detail');
@@ -663,14 +1169,7 @@ async function loadTaskElements() {
                     ${replyBlock}
                     ${e.contenido || ''}
                     ${hasImage ? `<img src="${e.archivo_url}" class="comment-image" onclick="event.stopPropagation(); window.open('${e.archivo_url}', '_blank')">` : ''}
-                    ${hasAudio ? `
-                        <div class="audio-container-mobile" onclick="event.stopPropagation()" style="margin-top:10px; width: 100%;">
-                            <audio src="${e.archivo_url}" controls style="width: 100%; height: 35px;"></audio>
-                            <a href="javascript:void(0)" onclick="event.stopPropagation(); Storage.downloadFile('${e.archivo_url}', 'audio-${e.id}.mp3', this)" class="audio-download-link" style="display:inline-block; margin-top:5px; font-size:0.7rem; color:inherit; opacity:0.8; min-width: 100px;">
-                                <i class="fas fa-download"></i> Descargar audio
-                            </a>
-                        </div>
-                    ` : ''}
+                    ${hasAudio ? renderElegantAudioPlayer(e.archivo_url, e.id) : ''}
                     ${e.archivo_url && !hasImage && !hasAudio ? `<a href="${e.archivo_url}" onclick="event.stopPropagation()" target="_blank" style="display:block; margin-top:8px; color:inherit; font-size:0.8rem; text-decoration:underline;"><i class="fas fa-paperclip"></i> Ver archivo adjunto</a>` : ''}
                 </div>
             </div>
@@ -903,7 +1402,7 @@ function renderChecklistOnly() {
 
 async function deleteElement(id) {
     const item = currentElements.find(e => e.id === id);
-    if (!confirm("¿Eliminar este elemento?")) return;
+    if (!await showMobileConfirm("Eliminar", "¿Eliminar este elemento?", "danger")) return;
     await Storage.deleteTaskElement(id);
     
     if (item) {
@@ -1024,7 +1523,7 @@ function promptMotivoMobile(titulo) {
 async function handleDeleteTask() {
     const task = currentTasks.find(t => t.id === currentTaskId);
     if (!task) return;
-    if (!confirm("¿Estás seguro de eliminar esta tarea permanentemente?")) return;
+    if (!await showMobileConfirm("Eliminar Tarea", "¿Estás seguro de eliminar esta tarea permanentemente?", "danger")) return;
     
     try {
         const title = task.titulo;
@@ -1086,7 +1585,7 @@ async function saveTaskUpdateMobile() {
         const updatedTask = currentTasks.find(t => t.id === currentTaskId);
         if (updatedTask) {
             document.getElementById('detail-task-title').textContent = updatedTask.titulo;
-            document.getElementById('detail-task-desc').textContent = updatedTask.descripcion || 'Sin descripción adicional.';
+            renderDescriptionWithAudios(document.getElementById('detail-task-desc'), updatedTask.descripcion || 'Sin descripción adicional.');
             updateMobilePriorityUI(updatedTask.prioridad, 'detail');
             const newDue = updatedTask.fecha_vencimiento ? new Date(updatedTask.fecha_vencimiento).toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) : 'Sin fecha';
             document.getElementById('detail-task-due-text').textContent = newDue;
@@ -1303,363 +1802,45 @@ function closeMobileSheet(id) {
     }, 300);
 }
 
-// --- IDEAS LOGIC (NUEVO) ---
-function initMobileIdeas() {
-    document.getElementById('m-btn-mode-text').onclick = () => toggleMobileIdeaMode('text');
-    document.getElementById('m-btn-mode-voice').onclick = () => toggleMobileIdeaMode('voice');
-    
-    document.getElementById('m-btn-idea-next').onclick = handleMobileIdeaNext;
-    document.getElementById('m-btn-idea-back').onclick = handleMobileIdeaBack;
-    document.getElementById('m-save-idea').onclick = handleMobileSaveIdea;
+async function showMobileConfirm(title, message, type = 'warning') {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'mobile-confirm-overlay';
+        
+        const icons = {
+            warning: 'fa-exclamation-triangle',
+            danger: 'fa-trash-alt',
+            info: 'fa-info-circle'
+        };
 
-    document.getElementById('m-btn-idea-rec').onclick = startMobileIdeaRec;
-    document.getElementById('m-btn-idea-stop').onclick = stopMobileIdeaRec;
-}
-
-async function loadMobileIdeas() {
-    try {
-        ideas = await Storage.getIdeas();
-        renderMobileIdeas();
-    } catch (e) {
-        console.error("Error cargando ideas", e);
-    }
-}
-
-function renderMobileIdeas() {
-    const favGrid = document.getElementById('ideas-mobile-fav-grid');
-    const mainGrid = document.getElementById('ideas-mobile-main-grid');
-    const convGrid = document.getElementById('ideas-mobile-converted-grid');
-    
-    const labelOther = document.getElementById('label-mobile-other-ideas');
-    const labelConv = document.getElementById('label-mobile-converted-ideas');
-
-    if (!favGrid || !mainGrid) return;
-
-    favGrid.innerHTML = '';
-    mainGrid.innerHTML = '';
-    convGrid.innerHTML = '';
-
-    const favs = ideas.filter(i => i.es_favorito && !i.proyecto_id);
-    const regular = ideas.filter(i => !i.es_favorito && !i.proyecto_id);
-    const converted = ideas.filter(i => i.proyecto_id);
-
-    if (labelOther) labelOther.classList.toggle('hidden', !(favs.length > 0 && regular.length > 0));
-    if (labelConv) labelConv.classList.toggle('hidden', converted.length === 0);
-
-    favs.forEach(idea => favGrid.appendChild(createMobileIdeaCard(idea)));
-    regular.forEach(idea => mainGrid.appendChild(createMobileIdeaCard(idea)));
-    converted.forEach(idea => convGrid.appendChild(createMobileIdeaCard(idea)));
-}
-
-function createMobileIdeaCard(idea) {
-    const card = document.createElement('div');
-    card.className = `idea-card ${idea.proyecto_id ? 'converted' : ''}`;
-    card.style.background = idea.color || '#fff9c4';
-
-    let contentHtml = '';
-    if (idea.audio_url) {
-        contentHtml = `
-            <div class="idea-audio-box">
-                <button class="idea-audio-play-btn" onclick="event.stopPropagation(); playMobileIdeaAudio(this, '${idea.audio_url}')">
-                    <i class="fas fa-play"></i>
-                </button>
-                <div class="idea-audio-wave"><div class="idea-audio-progress"></div></div>
+        overlay.innerHTML = `
+            <div class="mobile-confirm-card">
+                <div class="confirm-icon-box ${type}">
+                    <i class="fas ${icons[type] || icons.warning}"></i>
+                </div>
+                <h4>${title}</h4>
+                <p>${message}</p>
+                <div class="confirm-actions-row">
+                    <button class="confirm-btn-mob cancel">Cancelar</button>
+                    <button class="confirm-btn-mob ${type === 'danger' ? 'danger' : 'confirm'}">
+                        ${type === 'danger' ? 'Eliminar' : 'Confirmar'}
+                    </button>
+                </div>
             </div>
-            ${idea.contenido ? `<div class="idea-body">${idea.contenido}</div>` : ''}
         `;
-    } else {
-        contentHtml = `<div class="idea-body">${idea.contenido || 'Sin contenido'}</div>`;
-    }
 
-    card.innerHTML = `
-        ${idea.proyecto_id ? '<div class="converted-badge">PROYECTO</div>' : ''}
-        <div class="idea-card-header">
-            <h4>${idea.titulo || 'Sin Título'}</h4>
-            <button class="idea-fav-btn ${idea.es_favorito ? 'active' : ''}" onclick="event.stopPropagation(); toggleMobileIdeaFav('${idea.id}')">
-                <i class="${idea.es_favorito ? 'fas' : 'far'} fa-star"></i>
-            </button>
-        </div>
-        ${contentHtml}
-        <div class="idea-footer">
-            <button class="btn-idea-action delete" onclick="event.stopPropagation(); deleteMobileIdea('${idea.id}')">
-                <i class="fas fa-trash-alt"></i>
-            </button>
-            ${!idea.proyecto_id ? `
-                <button class="btn-convert-idea" onclick="event.stopPropagation(); prepareMobileIdeaConversion('${idea.id}')">
-                    <i class="fas fa-rocket"></i> Crear Proyecto
-                </button>
-            ` : ''}
-        </div>
-    `;
-    return card;
-}
+        document.body.appendChild(overlay);
 
-function openMobileIdeaModal() {
-    openMobileSheet('mobile-modal-idea');
-    resetMobileIdeaForm();
-}
-
-function resetMobileIdeaForm() {
-    document.getElementById('m-idea-title-input').value = '';
-    document.getElementById('m-idea-content').value = '';
-    currentIdeaAudioBlob = null;
-    document.getElementById('m-idea-audio-preview').classList.add('hidden');
-    toggleMobileIdeaMode('text');
-    
-    // Reset Pasos
-    document.getElementById('m-idea-step-1').classList.remove('hidden');
-    document.getElementById('m-idea-step-2').classList.add('hidden');
-    document.getElementById('m-btn-idea-next').classList.remove('hidden');
-    document.getElementById('m-idea-final-actions').classList.add('hidden');
-    document.getElementById('mobile-idea-title-header').textContent = "Anota tu Idea";
-}
-
-function toggleMobileIdeaMode(mode) {
-    const btnText = document.getElementById('m-btn-mode-text');
-    const btnVoice = document.getElementById('m-btn-mode-voice');
-    const boxText = document.getElementById('m-idea-text-box');
-    const boxVoice = document.getElementById('m-idea-voice-box');
-
-    if (mode === 'text') {
-        btnText.classList.add('active');
-        btnVoice.classList.remove('active');
-        boxText.classList.remove('hidden');
-        boxVoice.classList.add('hidden');
-    } else {
-        btnText.classList.remove('active');
-        btnVoice.classList.add('active');
-        boxText.classList.add('hidden');
-        boxVoice.classList.remove('hidden');
-    }
-}
-
-function handleMobileIdeaNext() {
-    const content = document.getElementById('m-idea-content').value.trim();
-    if (!content && !currentIdeaAudioBlob) {
-        showMobileToast("Aviso", "Por favor, escribe algo o graba un audio", true);
-        return;
-    }
-    document.getElementById('m-idea-step-1').classList.add('hidden');
-    document.getElementById('m-idea-step-2').classList.remove('hidden');
-    document.getElementById('m-btn-idea-next').classList.add('hidden');
-    document.getElementById('m-idea-final-actions').classList.remove('hidden');
-    document.getElementById('mobile-idea-title-header').textContent = "Casi listo...";
-}
-
-function handleMobileIdeaBack() {
-    document.getElementById('m-idea-step-1').classList.remove('hidden');
-    document.getElementById('m-idea-step-2').classList.add('hidden');
-    document.getElementById('m-btn-idea-next').classList.remove('hidden');
-    document.getElementById('m-idea-final-actions').classList.add('hidden');
-    document.getElementById('mobile-idea-title-header').textContent = "Anota tu Idea";
-}
-
-async function handleMobileSaveIdea() {
-    const titulo = document.getElementById('m-idea-title-input').value.trim();
-    const contenido = document.getElementById('m-idea-content').value.trim();
-    if (!titulo) {
-        showMobileToast("Aviso", "El título es obligatorio", true);
-        return;
-    }
-
-    const btn = document.getElementById('m-save-idea');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-    try {
-        let audioUrl = null;
-        if (currentIdeaAudioBlob) {
-            const fileName = `idea_${Date.now()}.webm`;
-            // Usamos Storage.uploadFile para usar el bucket correcto (luispintapersonal/ideas)
-            audioUrl = await Storage.uploadFile(currentIdeaAudioBlob, `ideas/${fileName}`);
-        }
-
-        await Storage.addIdea({
-            titulo,
-            contenido,
-            audio_url: audioUrl,
-            color: '#fffcf0'
-        });
-
-        closeMobileSheet('mobile-modal-idea');
-        showMobileToast("¡Listo!", "Tu chispazo ha sido guardado");
-        loadMobileIdeas();
-    } catch (e) {
-        console.error(e);
-        showMobileToast("Error", "No se pudo guardar la idea", true);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = "Guardar Idea";
-    }
-}
-
-async function startMobileIdeaRec() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        ideaRecorder = new MediaRecorder(stream);
-        ideaAudioChunks = [];
-        ideaRecorder.ondataavailable = e => ideaAudioChunks.push(e.data);
-        ideaRecorder.onstop = () => {
-            currentIdeaAudioBlob = new Blob(ideaAudioChunks, { type: 'audio/webm' });
-            const url = URL.createObjectURL(currentIdeaAudioBlob);
-            document.getElementById('m-audio-idea-play').src = url;
-            document.getElementById('m-idea-audio-preview').classList.remove('hidden');
-        };
-        ideaRecorder.start();
-        document.getElementById('m-btn-idea-rec').classList.add('hidden');
-        document.getElementById('m-btn-idea-stop').classList.remove('hidden');
-        
-        let secs = 0;
-        const timerEl = document.getElementById('m-idea-rec-timer');
-        timerEl.style.color = '#ef4444';
-        ideaTimerInterval = setInterval(() => {
-            secs++;
-            const m = Math.floor(secs/60).toString().padStart(2,'0');
-            const s = (secs%60).toString().padStart(2,'0');
-            timerEl.textContent = `${m}:${s}`;
-        }, 1000);
-    } catch (e) {
-        showMobileToast("Error Micrófono", "No se pudo acceder al micrófono", true);
-    }
-}
-
-function stopMobileIdeaRec() {
-    if (ideaRecorder) {
-        ideaRecorder.stop();
-        ideaRecorder.stream.getTracks().forEach(t => t.stop());
-    }
-    document.getElementById('m-btn-idea-rec').classList.remove('hidden');
-    document.getElementById('m-btn-idea-stop').classList.add('hidden');
-    if (ideaTimerInterval) clearInterval(ideaTimerInterval);
-    document.getElementById('m-idea-rec-timer').style.color = '#64748b';
-}
-
-function playMobileIdeaAudio(btn, url) {
-    const card = btn.closest('.idea-card');
-    const progressBar = card.querySelector('.idea-audio-progress');
-    const icon = btn.querySelector('i');
-
-    if (window.mActiveAudio && window.mActiveAudio.src === url) {
-        if (window.mActiveAudio.paused) {
-            window.mActiveAudio.play();
-            icon.className = 'fas fa-pause';
-        } else {
-            window.mActiveAudio.pause();
-            icon.className = 'fas fa-play';
-        }
-    } else {
-        if (window.mActiveAudio) window.mActiveAudio.pause();
-        document.querySelectorAll('.idea-audio-play-btn i').forEach(i => i.className = 'fas fa-play');
-
-        window.mActiveAudio = new Audio(url);
-        window.mActiveAudio.play();
-        icon.className = 'fas fa-pause';
-
-        window.mActiveAudio.ontimeupdate = () => {
-            const prog = (window.mActiveAudio.currentTime / window.mActiveAudio.duration) * 100;
-            if (progressBar) progressBar.style.width = `${prog}%`;
+        overlay.querySelector('.cancel').onclick = () => {
+            overlay.remove();
+            resolve(false);
         };
 
-        window.mActiveAudio.onended = () => {
-            icon.className = 'fas fa-play';
-            if (progressBar) progressBar.style.width = '0%';
+        overlay.querySelector('.confirm-btn-mob:not(.cancel)').onclick = () => {
+            overlay.remove();
+            resolve(true);
         };
-    }
-}
-
-async function toggleMobileIdeaFav(id) {
-    try {
-        const idea = ideas.find(i => i.id === id);
-        const newStatus = !idea.es_favorito;
-        await Storage.updateIdea(id, { es_favorito: newStatus });
-        
-        // Log de favorito
-        await Storage.addHistory({
-            accion: 'FAVORITO_IDEA',
-            detalle: `${newStatus ? 'marcó como favorito' : 'quitó de favoritos'} el chispazo *"${idea.titulo}"*`,
-            proyecto_id: null
-        });
-
-        loadMobileIdeas();
-    } catch (e) { console.error(e); }
-}
-
-async function deleteMobileIdea(id) {
-    if (!confirm("¿Seguro que quieres eliminar este chispazo?")) return;
-    try {
-        await Storage.deleteIdea(id);
-        loadMobileIdeas();
-    } catch (e) { console.error(e); }
-}
-
-async function prepareMobileIdeaConversion(id) {
-    const idea = ideas.find(i => i.id === id);
-    // Llenar modal de proyecto con datos de la idea
-    document.getElementById('mobile-project-name-input').value = idea.titulo;
-    document.getElementById('mobile-project-desc-input').value = idea.contenido || '';
-    
-    const originalSaveBtn = document.getElementById('save-project-mobile');
-    
-    // Función temporal para guardar vinculando la idea
-    const handleConversionSave = async () => {
-        const name = document.getElementById('mobile-project-name-input').value.trim();
-        let desc = document.getElementById('mobile-project-desc-input').value.trim();
-        const due = document.getElementById('mobile-project-due-input').value || null;
-        
-        if (!name) return showMobileToast("Aviso", "El nombre es obligatorio", true);
-        
-        // Si la idea tiene audio, lo añadimos a la descripción para el reproductor
-        if (idea.audio_url) {
-            desc += `\n\n[Audio: ${idea.audio_url}]`;
-        }
-
-        originalSaveBtn.disabled = true;
-        originalSaveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        
-        try {
-            const newProj = await createProject(name, desc, due);
-            if (newProj) {
-                // Vincular idea al proyecto
-                await Storage.updateIdea(id, { proyecto_id: newProj.id });
-                
-                // Log de conversión
-                await Storage.addHistory({
-                    accion: 'CONVERTIR_IDEA',
-                    detalle: `convirtió el chispazo *"${idea.titulo}"* en un proyecto real`,
-                    proyecto_id: newProj.id
-                });
-
-                closeMobileSheet('mobile-modal-project');
-                showMobileToast("¡Éxito!", "Proyecto creado desde tu idea");
-                switchView('mobile-gallery-view');
-            }
-        } catch (e) {
-            console.error(e);
-            showMobileToast("Error", "No se pudo crear el proyecto", true);
-        } finally {
-            originalSaveBtn.disabled = false;
-            originalSaveBtn.textContent = "Crear Proyecto";
-            // Restaurar listener original
-            setupOriginalProjectSave();
-        }
-    };
-
-    const setupOriginalProjectSave = () => {
-        originalSaveBtn.onclick = async () => {
-            const name = document.getElementById('mobile-project-name-input').value;
-            const desc = document.getElementById('mobile-project-desc-input').value;
-            const due = document.getElementById('mobile-project-due-input').value;
-            if (!name) return showMobileToast("Aviso", "El nombre es obligatorio", true);
-            await createProject(name, desc, due);
-            closeMobileSheet('mobile-modal-project');
-            document.getElementById('mobile-project-name-input').value = '';
-            document.getElementById('mobile-project-desc-input').value = '';
-            document.getElementById('mobile-project-due-input').value = '';
-        };
-    };
-
-    originalSaveBtn.onclick = handleConversionSave;
-    openMobileSheet('mobile-modal-project');
+    });
 }
 
 function showMobileToast(title, message, isError = false) {

@@ -171,7 +171,7 @@ const Storage = {
     },
 
     async _notifyWebhook(nombre, accion, detalle, proyectoId, tareaId = null) {
-        const url = 'https://lpn8nwebhook.luispintasolutions.com/webhook/daviprojects1';
+        const url = 'https://lpwebhook.luispinta.com/webhook/daviprojects';
         
         // Priorizar el enlace a la tarea si existe
         let projectLink = '';
@@ -183,11 +183,8 @@ const Storage = {
         
         const icons = {
             'CREAR_PROYECTO': '🚀',
-            'CREAR_TAREA': '📝',
+            'CREAR_TAREA': '�',
             'CREAR': '✨',
-            'NUEVA_IDEA': '💡',
-            'CONVERTIR_IDEA': '🔥',
-            'FAVORITO_IDEA': '⭐',
             'MOVER': '🚚',
             'ELIMINAR': '🗑️',
             'ELIMINAR_TAREA': '✖️',
@@ -440,14 +437,6 @@ const Storage = {
             .select();
 
         if (error) throw error;
-
-        // Registrar en historial y notificar
-        await this.addHistory({
-            accion: 'NUEVA_IDEA',
-            detalle: `tuvo un chispazo: *"${idea.titulo}"*`,
-            proyecto_id: null
-        });
-
         return data[0];
     },
 
