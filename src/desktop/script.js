@@ -8,7 +8,7 @@ let draggedTaskId = null;
 let lastActiveView = 'kanban'; 
 let currentHistoryFolder = null; 
 let globalAllTasks = []; // Caché global para sincronización silenciosa
-let globalChatInterval = null; // Intervalo para sondeo del chat
+let taskElementsChannel = null; // Canal Realtime para elementos de tarea
 
 const STATUS_NAMES = {
     'TODO': 'Por Hacer',
@@ -515,6 +515,11 @@ function checkUser() {
 }
 
 async function showApp() {
+    // Pedir permisos de notificación de una vez usando el Helper elegante
+    if (window.NotificationHelper) {
+        NotificationHelper.requestPermission(false);
+    }
+
     // Actualizar nombre de usuario si existe el elemento
     const userDisplay = document.getElementById('user-display-name');
     const userAvatar = document.querySelector('.avatar');
@@ -551,11 +556,34 @@ async function showApp() {
     document.getElementById('nav-dashboard').onclick = showGallery;
     document.getElementById('nav-ideas').onclick = showIdeasView;
     document.getElementById('nav-projects').onclick = showFullProjectsView;
+
+    // Configurar Notificaciones Push
+    const btnNotif = document.getElementById('btn-notifications');
+    if (btnNotif) {
+        btnNotif.onclick = async () => {
+            if (!("Notification" in window)) {
+                return showCustomAlert("No soportado", "Este navegador no soporta notificaciones de escritorio.", "error");
+            }
+            if (Notification.permission === 'default') {
+                const permission = await NotificationHelper.requestPermission(false);
+                if (permission === 'granted') {
+                    showCustomAlert("¡Éxito!", "Notificaciones habilitadas correctamente.", "success");
+                }
+            } else if (Notification.permission === 'granted') {
+                showCustomAlert("Aviso", "Las notificaciones ya están habilitadas.", "info");
+                new Notification("DaviProjects", { body: "Las notificaciones están activas ✅" });
+            } else {
+                showCustomAlert("Bloqueado", "Las notificaciones están bloqueadas en este navegador. Por favor hablítalas en la configuración del sitio.", "warning");
+            }
+        };
+    }
+
     if (document.getElementById('nav-notes')) {
         document.getElementById('nav-notes').onclick = () => showCustomAlert("Próximamente", "La sección de Notas Rápidas estará disponible en la siguiente actualización.", "info");
     }
 
     initIdeasListeners();
+    await initGlobalRealtime();
 
     const btnAll = document.getElementById('btn-view-all-projects');
     if (btnAll) btnAll.onclick = showFullProjectsView;
@@ -1186,12 +1214,9 @@ document.getElementById('save-project').addEventListener('click', async () => {
 let editingTaskId = null;
 let isEditMode = false;
 
-function openTaskModal(taskId = null) {
+function openTaskModal(taskId = null, targetType = null) {
     editingTaskId = taskId;
     const modal = document.getElementById('modal-task');
-    
-    // Limpiar intervalo previo si existe
-    if (globalChatInterval) clearInterval(globalChatInterval);
 
     const btnEdit = document.getElementById('btn-edit-task');
     const formContainer = document.getElementById('task-form-container');
@@ -1201,11 +1226,28 @@ function openTaskModal(taskId = null) {
     const motivoField = document.getElementById('motivo-field-container');
     const infoMotivoBox = document.getElementById('info-motivo-box');
 
-    // Resetear Tabs a Chat por defecto
-    document.querySelectorAll('.tab-link').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    document.querySelector('.tab-link[data-tab="sec-comments"]')?.classList.add('active');
-    document.getElementById('sec-comments')?.classList.add('active');
+    // Navegación precisa si se indica un tipo (Target Type)
+    if (targetType) {
+        const tabMap = {
+            'COMMENT': 'sec-comments',
+            'CHECKLIST': 'sec-checklist',
+            'NUMBERED': 'sec-numbered'
+        };
+        const targetTab = tabMap[targetType];
+        if (targetTab) {
+            document.querySelectorAll('.tab-link').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+            document.querySelector(`.tab-link[data-tab="${targetTab}"]`)?.classList.add('active');
+            const targetPane = document.getElementById(targetTab);
+            if (targetPane) targetPane.classList.add('active');
+        }
+    } else {
+        // Resetear Tabs a Chat por defecto
+        document.querySelectorAll('.tab-link').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        document.querySelector('.tab-link[data-tab="sec-comments"]')?.classList.add('active');
+        document.getElementById('sec-comments')?.classList.add('active');
+    }
 
     if (!taskId) {
         // Modo Creación
@@ -1231,8 +1273,17 @@ function openTaskModal(taskId = null) {
         updatePriorityUI(1);
     } else {
         // Modo Detalle/Edición
-        const task = tasks.find(t => t.id === taskId);
-        if (!task) return;
+        const task = tasks.find(t => t.id === taskId) || (typeof globalAllTasks !== 'undefined' ? globalAllTasks.find(t => t.id === taskId) : null);
+        
+        if (!task) {
+            console.warn("No se encontró la tarea localmente:", taskId);
+            // Intentar cargar la tarea directamente si no existe localmente
+            Storage.getTasks().then(all => {
+                const found = all.find(t => t.id === taskId);
+                if (found) openTaskModal(found.id);
+            });
+            return;
+        }
 
         isEditMode = false;
         titleDisplay.textContent = task.titulo;
@@ -1284,13 +1335,6 @@ function openTaskModal(taskId = null) {
 
         // Sincronizar UI de prioridad (y banner)
         updatePriorityUI(task.prioridad || 1);
-
-        // Iniciar sondeo del chat (cada 10 seg)
-        globalChatInterval = setInterval(() => {
-            if (editingTaskId && !document.getElementById('modal-task').classList.contains('hidden')) {
-                fetchTaskElements(editingTaskId, true);
-            }
-        }, 10000);
 
         formContainer.classList.add('hidden');
         infoContainer.classList.remove('hidden');
@@ -1947,6 +1991,7 @@ function closeModals() {
         window.projectAudio.pause();
         window.projectAudio = null;
     }
+
     document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
     document.querySelectorAll('input, textarea, select').forEach(i => {
         if (i.tagName === 'SELECT') i.selectedIndex = 0;
@@ -2937,13 +2982,173 @@ checklistInput?.addEventListener('keypress', (e) => { if(e.key === 'Enter') addE
 numberedInput?.addEventListener('keypress', (e) => { if(e.key === 'Enter') addElementFromUI('NUMBERED'); });
 commentInput?.addEventListener('keypress', (e) => { if(e.key === 'Enter') addElementFromUI('COMMENT'); });
 
+async function initGlobalRealtime() {
+    if (taskElementsChannel) return; // Ya está inicializado
+
+    const session = await AuthService.getSession();
+    if (session?.access_token) {
+        supabaseClient.realtime.setAuth(session.access_token);
+    }
+
+    console.log("Iniciando suscripción Realtime Global (Desktop)...");
+    
+    taskElementsChannel = supabaseClient
+        .channel('global-task-elements')
+        .on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'daviprojects_elementos_tarea'
+            },
+            (payload) => {
+                console.log('¡Nuevo elemento detectado via Realtime!', payload);
+                const newEl = payload.new;
+                
+                // 1. Si estamos viendo la tarea que cambió, refrescar lista
+                if (typeof editingTaskId !== 'undefined' && editingTaskId === newEl.tarea_id) {
+                    console.log('Refrescando elementos de la tarea actual:', editingTaskId);
+                    fetchTaskElements(editingTaskId, true);
+                }
+
+                // 2. Si no fuimos nosotros, mostrar notificación y sonido
+                console.log('Comparando usuarios:', {
+                    recibido: newEl.usuario_id,
+                    actual: currentUserId,
+                    esPropio: newEl.usuario_id === currentUserId
+                });
+
+                if (newEl.usuario_id !== currentUserId) {
+                    console.log('Notificación habilitada: Intentando sonido y visuales...');
+                    playNotificationSound();
+                    
+                    const labels = {
+                        'COMMENT': 'nuevo comentario',
+                        'CHECKLIST': 'nuevo elemento de checklist',
+                        'NUMBERED': 'nuevo elemento de lista'
+                    };
+                    
+                    const typeLabel = labels[newEl.tipo] || 'nuevo elemento';
+                    const userLabel = newEl.usuario_nombre || 'Un usuario';
+                    
+                    showToast(
+                        typeLabel,
+                        userLabel,
+                        newEl.contenido,
+                        newEl.tarea_id,
+                        newEl.tipo
+                    );
+
+                    showPushNotification(
+                        typeLabel,
+                        userLabel,
+                        newEl.contenido,
+                        newEl.tarea_id,
+                        newEl.tipo
+                    );
+                } else {
+                    console.log('Notificación omitida: El cambio fue realizado por el usuario actual.');
+                }
+            }
+        )
+        .subscribe();
+}
+
+function playNotificationSound() {
+    console.log('🔈 Intentando reproducir sonido...');
+    const audio = document.getElementById('notifSound') || new Audio('https://cdnjs.cloudflare.com/ajax/libs/ion-sound/3.0.7/sounds/button_tiny.mp3');
+    if (audio) {
+        audio.currentTime = 0;
+        audio.play()
+            .then(() => console.log('✅ Sonido reproducido con éxito'))
+            .catch(e => console.warn("❌ No se pudo reproducir el sonido de notificación:", e));
+    }
+}
+
+function showPushNotification(type, user, content, taskId, targetType = null) {
+    console.log('📲 Validando permisos para Push...', Notification.permission);
+    
+    // Omitir si el usuario está en la ventana actualmente
+    if (window.NotificationHelper && !NotificationHelper.shouldShowNotification()) {
+        console.log('🚫 Notificación push omitida: El usuario está en la ventana.');
+        return;
+    }
+
+    if (!("Notification" in window)) return;
+
+    if (Notification.permission === "granted") {
+        try {
+            const title = `🔔 ${user}: ${type}`;
+            const body = content && content.length > 100 ? content.substring(0, 100) + '...' : (content || '(Adjunto)');
+            
+            console.log('🚀 Lanzando Notificación Push:', { title, body });
+            const n = new Notification(title, { 
+                body,
+                icon: '/img/logo.webp', 
+                badge: '/img/logo.webp',
+                requireInteraction: true 
+            });
+            
+            n.onclick = () => { 
+                window.focus(); 
+                openTaskModal(taskId, targetType);
+                n.close(); 
+            };
+        } catch (e) {
+            console.error("❌ Error al crear la notificación push:", e);
+        }
+    } else {
+        console.warn('⚠️ Permisos de notificación no concedidos:', Notification.permission);
+    }
+}
+
+function showToast(type, user, content, taskId, targetType = null) {
+    console.log('🍞 Mostrando Toast UI...');
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    
+    // Limitar longitud del contenido para el toast
+    let displayContent = content || '';
+    if (displayContent.length > 80) displayContent = displayContent.substring(0, 80) + '...';
+
+    toast.innerHTML = `
+        <div class="toast-header">
+            <span class="toast-type">${type}</span>
+            <span class="toast-user">${user}</span>
+        </div>
+        <div class="toast-body">${displayContent || '(Sin contenido)'}</div>
+        <button class="toast-btn">Ver Tarea</button>
+    `;
+
+    toast.querySelector('.toast-btn').onclick = () => {
+        openTaskModal(taskId, targetType);
+        toast.style.animation = 'fadeOutToast 0.3s forwards';
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    container.appendChild(toast);
+
+    // Auto eliminar después de 8 segundos
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.style.animation = 'fadeOutToast 0.3s forwards';
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 8000);
+}
+
 // Register Service Worker
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('Service Worker registrado', reg))
-            .catch(err => console.error('Error al registrar Service Worker', err));
-    });
+// Se maneja centralizado en NotificationHelper
+if (window.NotificationHelper && !('serviceWorker' in navigator && navigator.serviceWorker.controller)) {
+    // Si por alguna razón no se registró en el HTML, lo intentamos aquí discretamente
+    // Pero el HTML ya se encarga ahora.
 }
 
 

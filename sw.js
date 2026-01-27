@@ -1,9 +1,10 @@
-const CACHE_NAME = 'daviprojects-v4';
+const CACHE_NAME = 'daviprojects-v5';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
   '/img/logo.webp',
+  '/img/lpsolutionslogo/png/lpsolutionswithe.png',
   '/img/lpsolutionslogo/png/lpsolutionswithe.webp',
   '/src/desktop/index.html',
   '/src/desktop/style.css',
@@ -12,17 +13,26 @@ const ASSETS_TO_CACHE = [
   '/src/mobile/style.css',
   '/src/mobile/script.js',
   '/src/shared/storage.js',
-  '/src/shared/supabase-config.js'
+  '/src/shared/supabase-config.js',
+  '/src/shared/notification-helper.js'
 ];
 
 // Install Service Worker
 self.addEventListener('install', event => {
+  self.skipWaiting(); // Forzar activación inmediata
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
         return cache.addAll(ASSETS_TO_CACHE);
       })
   );
+});
+
+// Listener para mensajes del frontend
+self.addEventListener('message', event => {
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Activate Service Worker

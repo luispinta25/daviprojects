@@ -6,7 +6,8 @@ let currentProjectId = null;
 let currentTaskId = null;
 let currentAttachment = null;
 let currentMobileReplyId = null; 
-let globalChatIntervalMobile = null; // Para sondeo cada 10s
+let currentUserIdMobile = null; 
+let taskElementsChannelMobile = null; // Canal Realtime para elementos de tarea
 
 // --- NAVEGACIÓN ENTRE TABS ---
 document.addEventListener('click', (e) => {
@@ -466,6 +467,11 @@ const statusFilters = document.querySelectorAll('.filter-pill');
 
 // --- INICIALIZACIÓN ---
 async function initMobile() {
+    // Pedir permisos de notificación de una vez usando el Helper elegante
+    if (window.NotificationHelper) {
+        NotificationHelper.requestPermission(true);
+    }
+
     // Sesión
     supabaseClient.auth.onAuthStateChange((event, session) => {
         if (event === 'SIGNED_OUT') window.location.href = 'auth/login.html';
@@ -473,11 +479,13 @@ async function initMobile() {
 
     const session = await AuthService.getSession();
     if (session) {
+        currentUserIdMobile = session.user.id;
         try {
             const profile = await AuthService.getUserProfile(session.user.id);
             if (profile) {
                 document.querySelector('.user-avatar-small').textContent = profile.nombre.substring(0,2).toUpperCase();
                 document.getElementById('mobile-user-welcome').textContent = `Hola, ${profile.nombre.split(' ')[0]}`;
+                await initGlobalRealtimeMobile();
             }
         } catch (e) {
             console.error("Error cargando perfil", e);
@@ -498,6 +506,27 @@ async function initMobile() {
     document.getElementById('btn-see-all-projects').onclick = () => switchView('mobile-all-projects-view');
     document.getElementById('btn-back-to-gallery').onclick = () => switchView('mobile-gallery-view');
     document.getElementById('btn-new-project-mobile').onclick = () => openMobileSheet('mobile-modal-project');
+
+    // Configurar Notificaciones Push Mobile
+    const btnNotifMobile = document.getElementById('btn-notifications-mobile');
+    if (btnNotifMobile) {
+        btnNotifMobile.onclick = async () => {
+            if (!("Notification" in window)) {
+                return alert("Este navegador no soporta notificaciones.");
+            }
+            if (Notification.permission === 'default') {
+                const permission = await NotificationHelper.requestPermission(true);
+                if (permission === 'granted') {
+                    alert("¡Notificaciones habilitadas! ✅");
+                }
+            } else if (Notification.permission === 'granted') {
+                alert("Las notificaciones ya están activas.");
+                new Notification("DaviProjects", { body: "Notificaciones móviles activas" });
+            } else {
+                alert("Las notificaciones están bloqueadas. Actívalas en la configuración del navegador.");
+            }
+        };
+    }
     document.getElementById('mobile-btn-logout').onclick = () => AuthService.logout();
     
     document.getElementById('btn-project-settings').onclick = openProjectDetails;
@@ -1051,14 +1080,27 @@ function clearMobileAttachment() {
 }
 
 // --- DETALLE DE TAREA ---
-async function openTaskDetail(id) {
+async function openTaskDetail(id, targetType = null) {
     currentTaskId = id;
     
-    // Limpiar intervalo previo
-    if (globalChatIntervalMobile) clearInterval(globalChatIntervalMobile);
-
-    const task = currentTasks.find(t => t.id === id);
-    if (!task) return;
+    // Buscar en tareas actuales o en el caché global de todas las tareas
+    const task = currentTasks.find(t => t.id === id) || (typeof allTasks !== 'undefined' ? allTasks.find(t => t.id === id) : null);
+    
+    if (!task) {
+        console.warn("No se encontró la tarea en el móvil:", id);
+        // Intentar cargar la tarea si no está en caché
+        try {
+            const tasksFromDB = await Storage.getTasks();
+            const found = tasksFromDB.find(t => t.id === id);
+            if (found) {
+                currentTasks.push(found);
+                return openTaskDetail(found.id, targetType);
+            }
+        } catch (e) {
+            console.error("Error al recuperar tarea:", e);
+        }
+        return;
+    }
 
     document.getElementById('detail-task-title').textContent = task.titulo;
     const descEl = document.getElementById('detail-task-desc');
@@ -1075,29 +1117,17 @@ async function openTaskDetail(id) {
         opt.classList.toggle('active', opt.dataset.status === task.estado);
     });
 
-    // Resetear Tabs (Mostrar Chat por defecto)
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    const chatTabBtn = document.querySelector('[data-tab="tab-comments"]');
-    if (chatTabBtn) chatTabBtn.classList.add('active');
-
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-    const chatTab = document.getElementById('tab-comments');
-    if (chatTab) chatTab.classList.remove('hidden');
-
-    // Iniciar sondeo silencioso del chat (cada 10 seg)
-    globalChatIntervalMobile = setInterval(() => {
-        const sheet = document.getElementById('mobile-task-detail');
-        const chatModal = document.getElementById('mobile-chat-modal');
-        const isDetailOpen = sheet && !sheet.classList.contains('hidden');
-        const isChatOpen = chatModal && !chatModal.classList.contains('hidden');
-
-        if (currentTaskId && (isDetailOpen || isChatOpen)) {
-            loadTaskElements(true);
-        }
-    }, 10000);
-
     openMobileSheet('mobile-task-detail');
     loadTaskElements();
+
+    // Navegación precisa según el tipo de notificación
+    if (targetType === 'COMMENT') {
+        openChatMobile();
+    } else if (targetType === 'CHECKLIST') {
+        openChecklistMobile();
+    } else if (targetType === 'NUMBERED') {
+        openStepsMobile();
+    }
 }
 
 function openChatMobile() {
@@ -1958,12 +1988,180 @@ function showMobileToast(title, message, isError = false) {
 // Inicializar
 initMobile();
 
+async function initGlobalRealtimeMobile() {
+    if (taskElementsChannelMobile) return;
+
+    const session = await AuthService.getSession();
+    if (session?.access_token) {
+        supabaseClient.realtime.setAuth(session.access_token);
+    }
+
+    console.log("Iniciando suscripción Realtime Global (Mobile)...");
+
+    taskElementsChannelMobile = supabaseClient
+        .channel('global-task-elements-mobile')
+        .on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'daviprojects_elementos_tarea'
+            },
+            (payload) => {
+                console.log('¡Nuevo elemento detectado via Realtime (Mobile)!', payload);
+                const newEl = payload.new;
+                
+                // 1. Refresh si estamos viendo la tarea
+                if (currentTaskId === newEl.tarea_id) {
+                    console.log('Refrescando tarea actual (Mobile):', currentTaskId);
+                    loadTaskElements(true);
+                }
+
+                // 2. Notificar si es de otro usuario
+                console.log('Comparando usuarios (Mobile):', {
+                    recibido: newEl.usuario_id,
+                    actual: currentUserIdMobile,
+                    esPropio: newEl.usuario_id === currentUserIdMobile
+                });
+
+                if (newEl.usuario_id !== currentUserIdMobile) {
+                    console.log('Notificación habilitada (Mobile): Intentando sonido y visuales...');
+                    playNotificationSoundMobile();
+
+                    const labels = {
+                        'COMMENT': 'nuevo comentario',
+                        'CHECKLIST': 'nuevo elemento de checklist',
+                        'NUMBERED': 'nuevo elemento de lista'
+                    };
+
+                    const typeLabel = labels[newEl.tipo] || 'nuevo elemento';
+                    const userLabel = newEl.usuario_nombre || 'Usuario';
+
+                    showMobileToast(
+                        typeLabel,
+                        userLabel,
+                        newEl.contenido,
+                        newEl.tarea_id,
+                        newEl.tipo
+                    );
+
+                    showPushNotificationMobile(
+                        typeLabel,
+                        userLabel,
+                        newEl.contenido,
+                        newEl.tarea_id,
+                        newEl.tipo
+                    );
+                } else {
+                    console.log('Notificación omitida (Mobile): El cambio fue realizado por el usuario actual.');
+                }
+            }
+        )
+        .subscribe();
+}
+
+function playNotificationSoundMobile() {
+    console.log('🔈 Intentando reproducir sonido (Mobile)...');
+    const audio = document.getElementById('notifSound') || new Audio('https://cdnjs.cloudflare.com/ajax/libs/ion-sound/3.0.7/sounds/button_tiny.mp3');
+    if (audio) {
+        audio.currentTime = 0;
+        audio.play()
+            .then(() => console.log('✅ Sonido reproducido con éxito (Mobile)'))
+            .catch(e => console.warn("❌ No se pudo reproducir el sonido (Mobile):", e));
+    }
+}
+
+function showPushNotificationMobile(type, user, content, taskId, targetType = null) {
+    console.log('📲 Validando permisos para Push (Mobile)...', Notification.permission);
+    
+    // Omitir si el usuario está en la ventana actualmente
+    if (window.NotificationHelper && !NotificationHelper.shouldShowNotification()) {
+        console.log('🚫 Notificación push omitida: El usuario está en la ventana.');
+        return;
+    }
+
+    if (!("Notification" in window)) return;
+
+    if (Notification.permission === "granted") {
+        try {
+            const title = `🔔 ${user}: ${type}`;
+            const body = content && content.length > 80 ? content.substring(0, 80) + '...' : (content || '(Adjunto)');
+            
+            console.log('🚀 Lanzando Notificación Push (Mobile):', { title, body });
+            const n = new Notification(title, { 
+                body,
+                icon: '/img/logo.webp',
+                badge: '/img/logo.webp',
+                requireInteraction: true 
+            });
+            
+            n.onclick = () => { 
+                window.focus(); 
+                openTaskDetail(taskId, targetType);
+                n.close(); 
+            };
+        } catch (e) {
+            console.error("❌ Error push mobile:", e);
+        }
+    } else {
+        console.warn('⚠️ Permisos de notificación móvil no concedidos:', Notification.permission);
+    }
+}
+
+function showMobileToast(type, user, content, taskId, targetType = null) {
+    console.log('🍞 Mostrando Toast UI (Mobile)...');
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    
+    let displayContent = content || '';
+    if (displayContent.length > 50) displayContent = displayContent.substring(0, 50) + '...';
+
+    // Determinar icono
+    let iconClass = 'fa-comment-alt';
+    if (type.includes('checklist')) iconClass = 'fa-check-square';
+    if (type.includes('lista')) iconClass = 'fa-list-ol';
+
+    toast.innerHTML = `
+        <div class="toast-icon-circle">
+            <i class="fas ${iconClass}"></i>
+        </div>
+        <div class="toast-content">
+            <div class="toast-header">
+                <span class="toast-type">${type}</span>
+                <span class="toast-user">${user}</span>
+            </div>
+            <div class="toast-body">${displayContent || '(Adjunto)'}</div>
+        </div>
+        <button class="toast-btn"><i class="fas fa-chevron-right"></i></button>
+    `;
+
+    toast.onclick = () => {
+        openTaskDetail(taskId, targetType);
+        toast.style.animation = 'fadeOutToast 0.3s forwards';
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    container.appendChild(toast);
+
+    // Auto eliminar
+    setTimeout(() => { 
+        if (toast.parentElement) {
+            toast.style.animation = 'fadeOutToast 0.3s forwards';
+            setTimeout(() => toast.remove(), 300); 
+        }
+    }, 6000);
+}
+
 // Register Service Worker
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('Service Worker registrado', reg))
-            .catch(err => console.error('Error al registrar Service Worker', err));
-    });
+// Se maneja centralizado en NotificationHelper
+if (window.NotificationHelper && !('serviceWorker' in navigator && navigator.serviceWorker.controller)) {
+    // Registrado en el HTML
 }
 

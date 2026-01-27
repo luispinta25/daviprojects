@@ -5,6 +5,14 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjog
 // Inicializar cliente
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Sincronización automática de Realtime con la sesión
+supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (session?.access_token) {
+        supabaseClient.realtime.setAuth(session.access_token);
+        console.log("Realtime Auth sincronizado ✅");
+    }
+});
+
 const AuthService = {
     async login(email, password) {
         const { data, error } = await supabaseClient.auth.signInWithPassword({
@@ -35,6 +43,9 @@ const AuthService = {
 
     async getSession() {
         const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session && session.access_token) {
+            supabaseClient.realtime.setAuth(session.access_token);
+        }
         return session;
     },
 

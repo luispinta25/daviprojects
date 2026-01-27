@@ -1955,3 +1955,104 @@ main {
     from { transform: translateY(100px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
+
+/* Toast Notifications Mobile - Elegant and Adapted */
+.toast-container {
+    position: fixed;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+    width: 90%;
+    max-width: 400px;
+}
+
+.toast {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    color: #071A40;
+    padding: 12px 16px;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid rgba(255,255,255,0.3);
+    pointer-events: auto;
+    animation: slideDownToast 0.4s cubic-bezier(0.165, 0.84, 0.44, 1) forwards;
+}
+
+.toast-icon-circle {
+    width: 42px;
+    height: 42px;
+    background: var(--primary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.toast-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.toast-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 2px;
+}
+
+.toast-type {
+    font-weight: 800;
+    font-size: 0.65rem;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.toast-user {
+    font-size: 0.7rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.toast-body {
+    font-size: 0.85rem;
+    line-height: 1.2;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.toast-btn {
+    background: transparent;
+    color: var(--primary);
+    border: none;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+@keyframes slideDownToast {
+    from { transform: translateY(-100%) scale(0.9); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes fadeOutToast {
+    to { transform: translateY(-20px) scale(0.95); opacity: 0; }
+}

@@ -20,6 +20,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/src/shared/supabase-config.js"></script>
+    <script src="/src/shared/notification-helper.js"></script>
     <style>
         #app { display: none; } /* Ocultar hasta validar sesión */
         .loading-screen {
@@ -74,13 +75,9 @@
         }
     </style>
     <script>
-        // Service Worker Registration
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then(reg => console.log('SW registrado (Desktop):', reg.scope))
-                    .catch(err => console.error('Error SW (Desktop):', err));
-            });
+        // Service Worker Registration handled by Helper
+        if (window.NotificationHelper) {
+            NotificationHelper.registerServiceWorker();
         }
 
         function showCustomAlert(title, message, type = 'warning') {
@@ -154,6 +151,7 @@
     </script>
 </head>
 <body>
+    <audio id="notifSound" src="https://cdnjs.cloudflare.com/ajax/libs/ion-sound/3.0.7/sounds/button_tiny.mp3" preload="auto"></audio>
     <div id="loading" class="loading-screen">
         <div class="spinner-loading"></div>
         <div style="font-weight: 500; letter-spacing: 0.5px; opacity: 0.8;">Cargando...</div>
@@ -227,6 +225,9 @@
                                 <span id="user-display-name">Usuario</span>
                             </div>
                             <div class="avatar">U</div>
+                            <button id="btn-notifications" class="btn-home-circle" title="Habilitar Notificaciones">
+                                <i class="fas fa-bell"></i>
+                            </button>
                             <button id="btn-home" class="btn-home-circle" title="Ir al Dashboard">
                                 <i class="fas fa-home"></i>
                             </button>

@@ -116,7 +116,13 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(reg => console.log('SW OK'))
+                    .then(reg => {
+                        console.log('SW OK');
+                        // Si hay una actualización esperando, la forzamos o el usuario lo verá al entrar a la app
+                        if (reg.waiting) {
+                            reg.waiting.postMessage('SKIP_WAITING');
+                        }
+                    })
                     .catch(err => console.error('SW Error', err));
             });
         }
