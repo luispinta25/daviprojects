@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daviprojects-v5';
+const CACHE_NAME = 'daviprojects-v36'; // Corrección de error de sintaxis en carga de música
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -14,12 +14,15 @@ const ASSETS_TO_CACHE = [
   '/src/mobile/script.js',
   '/src/shared/storage.js',
   '/src/shared/supabase-config.js',
-  '/src/shared/notification-helper.js'
+  '/src/shared/notification-helper.js',
+  '/src/shared/chat-utils.js',
+  '/src/shared/image-editor.js',
+  '/src/shared/image-viewer.js'
 ];
 
 // Install Service Worker
 self.addEventListener('install', event => {
-  self.skipWaiting(); // Forzar activación inmediata
+  self.skipWaiting(); 
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
@@ -35,30 +38,67 @@ self.addEventListener('message', event => {
   }
 });
 
-// Activate Service Worker
+// Activate Service Worker - Limpia Caches antiguos
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cache => {
           if (cache !== CACHE_NAME) {
+            console.log('[SW] Borrando cache antiguo:', cache);
             return caches.delete(cache);
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
 
 // Fetch events
 self.addEventListener('fetch', event => {
-  // Ignorar peticiones a Supabase o externas para el cache offline básico
-  if (event.request.url.includes('supabase.co')) return;
+  if (event.request.method !== 'GET') return;
+  
+  // Ignorar peticiones a APIs externas (Supabase siempre fresco)
+  if (event.request.url.includes('supabase.co') || 
+      event.request.url.includes('luispintasolutions.com/rest') ||
+      event.request.url.includes('google-analytics')) {
+    return;
+  }
 
+  const url = new URL(event.request.url);
+
+  // ESTRATEGIA: Network First para archivos de lógica y estilos (JS, CSS, HTML)
+  // Esto garantiza que si hay internet, descargue el código nuevo.
+  if (event.request.mode === 'navigate' || 
+      url.pathname.endsWith('.js') || 
+      url.pathname.endsWith('.css')) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // ESTRATEGIA: Cache First para activos estáticos (Imágenes, Fuentes)
   event.respondWith(
     caches.match(event.request)
-      .then(response => {
-        return response || fetch(event.request);
+      .then(cachedResponse => {
+        if (cachedResponse) return cachedResponse;
+
+        return fetch(event.request).then(networkResponse => {
+          if (!networkResponse || networkResponse.status !== 200) return networkResponse;
+          
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(event.request, responseToCache);
+          });
+          return networkResponse;
+        });
       })
   );
 });

@@ -21,6 +21,23 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/src/shared/supabase-config.js"></script>
     <script src="/src/shared/notification-helper.js"></script>
+    <script>
+        // Redirección responsiva dinámica
+        function checkRedirection() {
+            if (window.innerWidth <= 768) {
+                window.location.replace("/src/mobile/index.html" + window.location.search);
+            }
+        }
+        window.addEventListener('resize', checkRedirection);
+        checkRedirection();
+
+        // Reforzar actualización de Service Worker si es necesario
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                window.location.reload();
+            });
+        }
+    </script>
     <style>
         #app { display: none; } /* Ocultar hasta validar sesión */
         .loading-screen {
@@ -109,7 +126,7 @@
                     || window.matchMedia("(max-width: 768px)").matches;
                 
                 if (isMobile) {
-                    window.location.replace("../mobile/index.html");
+                    window.location.replace("../mobile/index.html" + window.location.search);
                     return;
                 }
 
@@ -124,26 +141,26 @@
 
                 const session = await AuthService.getSession();
                 if (!session) {
-                    window.location.replace("auth/login.html");
+                    const currentUrl = encodeURIComponent(window.location.href);
+                    window.location.replace("auth/login.html?redirect=" + currentUrl);
                     return;
                 }
 
                 // VALIDACIÓN ESTRICTA: Solo usuarios en daviplata_usuarios
                 try {
                     const profile = await AuthService.getUserProfile(session.user.id);
-                    if (!profile) throw new Error("Acceso denegado: No registrado");
-                    
-                    document.getElementById('app').style.display = 'block';
-                    document.getElementById('loading').style.display = 'none';
+                    if (!profile) {
+                         await AuthService.logout(true);
+                         return;
+                    }
                     window.session = session;
                 } catch (profError) {
-                    console.error(profError);
-                    await showCustomAlert("Acceso Restringido", "No tienes permisos para acceder al sistema. Por favor, contacta con el administrador.");
-                    await supabaseClient.auth.signOut();
-                    window.location.replace("auth/login.html");
+                    console.error("Error validando perfil:", profError);
+                    const currentUrl = encodeURIComponent(window.location.href);
+                    window.location.replace("auth/login.html?expired=1&redirect=" + currentUrl);
                 }
             } catch (err) {
-                console.error("Error de acceso:", err);
+                console.error("Critical access error:", err);
                 window.location.replace("auth/login.html");
             }
         }
@@ -152,6 +169,7 @@
 </head>
 <body>
     <audio id="notifSound" src="https://cdnjs.cloudflare.com/ajax/libs/ion-sound/3.0.7/sounds/button_tiny.mp3" preload="auto"></audio>
+    <audio id="global-music-audio" preload="auto"></audio>
     <div id="loading" class="loading-screen">
         <div class="spinner-loading"></div>
         <div style="font-weight: 500; letter-spacing: 0.5px; opacity: 0.8;">Cargando...</div>
@@ -185,6 +203,9 @@
                         </li>
                         <li id="nav-ideas">
                             <i class="fas fa-lightbulb"></i> Ideas
+                        </li>
+                        <li id="nav-music">
+                            <i class="fas fa-music"></i> Música
                         </li>
                     </ul>
                     <div class="sidebar-header" style="margin-top: 1.5rem;">
@@ -258,6 +279,13 @@
                                 <span class="metric-value">Anotar</span>
                             </div>
                         </div>
+                        <div id="btn-dashboard-music" class="metric-card" style="cursor: pointer; border: 2px solid #007aff; background: #f0f7ff;">
+                            <div class="metric-icon" style="background: #007aff; color: white;"><i class="fas fa-music"></i></div>
+                            <div class="metric-info">
+                                <span class="metric-label" style="color: #007aff; font-weight: 700;">MÚSICA</span>
+                                <span class="metric-value">Explorar</span>
+                            </div>
+                        </div>
                         <div class="metric-card">
                             <div class="metric-icon"><i class="fas fa-folder"></i></div>
                             <div class="metric-info">
@@ -297,6 +325,75 @@
                     
                     <div id="project-gallery" class="project-gallery">
                         <!-- Project cards will be rendered here -->
+                    </div>
+                </section>
+
+                <section id="music-view" class="view hidden">
+                    <div class="music-hub-layout">
+                        <!-- Rediseño del Header de Música -->
+                        <div class="music-hero-card">
+                            <div class="hero-content">
+                                <div class="hero-text">
+                                    <div class="brand-badge-alt">
+                                        <i class="fas fa-compact-disc fa-spin"></i>
+                                        <span>DREAMNOTES MUSIC</span>
+                                    </div>
+                                    <h1>Tu sonido, tu proyecto</h1>
+                                    <p>Gestiona y escucha todas las producciones musicales vinculadas a tus desarrollos en un solo lugar.</p>
+                                    <div class="hero-actions">
+                                        <button id="btn-upload-music" class="btn-glass">
+                                            <i class="fas fa-plus"></i> Nueva Producción
+                                        </button>
+                                        <div class="music-search-box">
+                                            <i class="fas fa-search"></i>
+                                            <input type="text" id="music-search-input" placeholder="Buscar canciones o proyectos...">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="hero-stats">
+                                    <div class="stat-bubble">
+                                        <span id="music-total-count">0</span>
+                                        <label>Temas</label>
+                                    </div>
+                                    <div class="stat-bubble">
+                                        <span id="music-total-likes">0</span>
+                                        <label>Favoritos</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="music-content-body">
+                            <!-- Sidebar interna de filtros -->
+                            <div class="music-internal-sidebar">
+                                <ul class="music-nav-filters">
+                                    <li class="active" data-filter="all"><i class="fas fa-th-large"></i> Todos los temas</li>
+                                    <li data-filter="favs"><i class="fas fa-heart"></i> Mis Favoritos</li>
+                                    <li data-filter="projects"><i class="fas fa-rocket"></i> Por Proyectos</li>
+                                </ul>
+                                
+                                <div class="music-playlist-mini">
+                                    <h5>RECIENTES</h5>
+                                    <div id="music-recent-small" class="recent-list">
+                                        <!-- Mini listado de canciones recientes -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Grilla Principal -->
+                            <div class="music-main-area">
+                                <div class="section-title-row">
+                                    <h3 id="music-list-title">Explorar Todo</h3>
+                                    <div class="view-options">
+                                        <button id="btn-music-grid" class="btn-icon-min active" title="Ver cuadrícula"><i class="fas fa-th"></i></button>
+                                        <button id="btn-music-list" class="btn-icon-min" title="Ver lista"><i class="fas fa-list"></i></button>
+                                    </div>
+                                </div>
+                                <div id="music-list" class="music-grid">
+                                    <!-- Canciones aquí -->
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -724,7 +821,12 @@
 
                                 <div id="comment-attachment-preview" class="hidden">
                                     <div class="preview-content">
-                                        <div id="preview-thumbnail" class="preview-thumbnail hidden"></div>
+                                        <div class="thumbnail-wrapper" style="position: relative;">
+                                            <div id="preview-thumbnail" class="preview-thumbnail hidden"></div>
+                                            <button id="btn-edit-desktop-preview" class="btn-edit-badge hidden" onclick="openEditorFromPreview()">
+                                                <i class="fas fa-magic"></i> Editar Imagen
+                                            </button>
+                                        </div>
                                         <div id="preview-icon" class="preview-icon">
                                             <i class="fas fa-file"></i>
                                         </div>
@@ -739,7 +841,7 @@
                                 </div>
 
                                 <div class="extension-input-group">
-                                    <input type="text" id="new-comment-text" placeholder="Escribir comentario...">
+                                    <textarea id="new-comment-text" placeholder="Escribir comentario..." rows="1" oninput="autoResizeTextarea(this)"></textarea>
                                     <button class="btn-icon-secondary" id="btn-trigger-file" title="Adjuntar archivo"><i class="fas fa-paperclip"></i></button>
                                     <input type="file" id="comment-file-input" class="hidden" accept="image/*,audio/*,application/pdf">
                                     <button class="btn-add-element" id="btn-save-comment"><i class="fas fa-paper-plane"></i></button>
@@ -821,10 +923,15 @@
     <div id="floating-audio-player" class="audio-player-bar hidden">
         <div class="player-content glass">
             <div class="player-left">
-                <div class="player-icon-box pulse-audio"><i class="fas fa-volume-up"></i></div>
+                <div class="player-icon-box pulse-audio" id="player-main-icon"><i class="fas fa-volume-up"></i></div>
                 <div class="player-meta">
-                    <span class="p-title">Nota de audio de la tarea</span>
+                    <span class="p-title" id="player-song-title">Nota de audio</span>
                     <span id="player-time" class="p-timer">0:00 / 0:00</span>
+                </div>
+                <!-- Reacciones integradas en el player para música -->
+                <div id="player-music-reactions" class="p-reactions hidden" style="display: flex; gap: 10px; margin-left: 15px; padding-left: 15px; border-left: 1px solid rgba(0,0,0,0.1);">
+                    <button id="player-btn-like" class="p-btn-react"><i class="fas fa-heart"></i> <span id="player-count-like">0</span></button>
+                    <button id="player-btn-dislike" class="p-btn-react"><i class="fas fa-heart-broken"></i> <span id="player-count-dislike">0</span></button>
                 </div>
             </div>
             
@@ -852,7 +959,60 @@
         </div>
     </div>
 
+    <!-- Modal para Nueva Música PC -->
+    <div id="modal-upload-music" class="modal hidden">
+        <div class="modal-content studio-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-record-vinyl fa-spin" style="color: #05a64b;"></i> DreamNotes Music Studio</h3>
+                <button class="modal-close" id="close-music-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="studio-form-grid">
+                    <div class="form-group full">
+                        <label><i class="fas fa-signature"></i> Nombre de la canción</label>
+                        <input type="text" id="pc-music-name" placeholder="Ej: Master Final Mix">
+                    </div>
+                    
+                    <div class="form-group half">
+                        <label><i class="fas fa-info-circle"></i> Versión / Descripción</label>
+                        <input type="text" id="pc-music-desc" placeholder="Ej: v2.0 Bass Boost">
+                    </div>
+                    
+                    <div class="form-group half">
+                        <label><i class="fas fa-rocket"></i> Vincular a Proyecto</label>
+                        <select id="pc-music-project">
+                            <!-- Dinámico -->
+                        </select>
+                    </div>
+
+                    <div class="form-group full">
+                        <label><i class="fas fa-file-audio"></i> Archivo de Audio (MP3/WAV)</label>
+                        <div class="file-upload-wrapper">
+                            <input type="file" id="pc-music-file" accept="audio/*">
+                            <div class="file-upload-design">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <span>Arrastra o selecciona tu obra maestra</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group full">
+                        <label><i class="fas fa-pen-nib"></i> Letra o Notas de Producción</label>
+                        <textarea id="pc-music-lyrics" placeholder="Escribe aquí la letra o notas importantes..."></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-cancel-music-pc" class="btn-studio-sec">Descartar</button>
+                <button id="btn-do-upload-music" class="btn-studio-pri">Sincronizar y Guardar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/src/shared/storage.js"></script>
+    <script src="/src/shared/chat-utils.js"></script>
+    <script src="/src/shared/image-editor.js"></script>
+    <script src="/src/shared/image-viewer.js"></script>
     <script src="/src/desktop/script.js"></script>
 </body>
 </html>

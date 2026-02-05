@@ -136,6 +136,14 @@
 
     <script src="../../shared/supabase-config.js"></script>
     <script>
+        // Verificar si la sesión expiró
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('expired') === '1') {
+            const errorMsg = document.getElementById('error-msg');
+            errorMsg.style.color = '#ff9800'; // Naranja para advertencia
+            errorMsg.textContent = "Sesión expirada, reinicia sesión por favor.";
+        }
+
         document.getElementById('btn-login').onclick = async () => {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
@@ -143,6 +151,7 @@
             const btn = document.getElementById('btn-login');
 
             if (!email || !password) {
+                errorMsg.style.color = '#ef4444';
                 errorMsg.textContent = "Por favor completa todos los campos";
                 return;
             }
@@ -153,8 +162,16 @@
                 errorMsg.textContent = "";
 
                 await AuthService.login(email, password);
-                window.location.href = "../index.html";
+                
+                // Redirigir al destino original si existe
+                const redirectTo = urlParams.get('redirect');
+                if (redirectTo) {
+                    window.location.href = decodeURIComponent(redirectTo);
+                } else {
+                    window.location.href = "../index.html";
+                }
             } catch (error) {
+                errorMsg.style.color = '#ef4444';
                 errorMsg.textContent = "Correo o contraseña incorrectos";
                 console.error(error);
             } finally {

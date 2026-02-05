@@ -170,18 +170,34 @@ const Storage = {
         if (insertError) console.error("Error al guardar historial:", insertError);
     },
 
-    async _notifyWebhook(nombre, accion, detalle, proyectoId, tareaId = null) {
+    async _notifyWebhook(nombre, accion, detalle, proyectoId, tareaId = null, musicId = null) {
         const url = 'https://lpn8nwebhook.luispintasolutions.com/webhook/daviprojects1';
         
+        // Determinar el módulo/tipo para deep linking
+        let targetType = null;
+        const detLower = (detalle || '').toLowerCase();
+        
+        if (accion === 'RESPONDER' || accion === 'NUEVO_COMENTARIO' || detLower.includes('comentario')) {
+            targetType = 'COMMENT';
+        } else if (detLower.includes('checklist')) {
+            targetType = 'CHECKLIST';
+        } else if (detLower.includes('lista') || detLower.includes('pasos')) {
+            targetType = 'NUMBERED';
+        }
+
         // Priorizar el enlace a la tarea si existe
         let projectLink = '';
-        if (tareaId) {
-            projectLink = `https://daviprojects.luispinta.com/?taskId=${tareaId}`;
+        if (musicId) {
+            projectLink = `https://daviprojects.luispinta.com/?musicId=${musicId}`;
+        } else if (tareaId) {
+            projectLink = `https://daviprojects.luispinta.com/?taskId=${tareaId}${targetType ? `&targetType=${targetType}` : ''}`;
         } else if (proyectoId) {
             projectLink = `https://daviprojects.luispinta.com/?projectId=${proyectoId}`;
         }
         
         const icons = {
+            'NUEVA_MUSICA': '🎵',
+            'REACCION_MUSICA': '❤️',
             'CREAR_PROYECTO': '🚀',
             'CREAR_TAREA': '�',
             'CREAR': '✨',
@@ -454,6 +470,206 @@ const Storage = {
             .delete()
             .eq('id', ideaId);
         if (error) throw error;
+    },
+
+    // LLAMADAS SUPABASE (Música)
+    async getMusic() {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        
+        // 1. Obtener canciones (Forzamos evitar el cache interno del cliente si fuera necesario)
+        const { data: musicData, error } = await supabaseClient
+            .from('daviprojects_musica')
+            .select(`
+                *,
+                proyecto:daviprojects_proyectos(nombre)
+            `)
+            .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+
+        // 2. Si hay usuario, obtener sus reacciones reales desde DB
+        // IMPORTANTE: No usar variables locales persistentes para reacciones
+        let userReactions = [];
+        if (user && musicData.length > 0) {
+            const { data: reactions, error: rError } = await supabaseClient
+                .from('daviprojects_musica_reacciones')
+                .select('musica_id, tipo')
+                .eq('usuario_id', user.id);
+            
+            if (rError) console.error("Error cargando reacciones reales:", rError);
+            userReactions = reactions || [];
+        }
+        
+        return musicData.map(song => {
+            const userSongReactions = userReactions.filter(react => react.musica_id === song.id);
+            return { 
+                ...song, 
+                user_likes_count: userSongReactions.filter(r => r.tipo === 'like').length > 0 ? 1 : 0,
+                user_dislikes_count: userSongReactions.filter(r => r.tipo === 'dislike').length > 0 ? 1 : 0
+            };
+        });
+    },
+
+    async addMusic(music) {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        
+        // Obtener nombre para el historial/webhook
+        let userDisplayName = 'Usuario';
+        try {
+            const { data: profile } = await supabaseClient
+                .from('daviplata_usuarios')
+                .select('nombre')
+                .eq('auth_id', user.id)
+                .single();
+            if (profile && profile.nombre) userDisplayName = profile.nombre;
+        } catch (e) { console.error(e); }
+
+        const { data, error } = await supabaseClient
+            .from('daviprojects_musica')
+            .insert([{
+                usuario_id: user.id,
+                proyecto_id: music.proyecto_id || null,
+                nombre: music.nombre,
+                descripcion_corta: music.descripcion_corta || null,
+                url_archivo: music.url_archivo,
+                letra: music.letra || null
+            }])
+            .select();
+
+        if (error) throw error;
+
+        // Notificar Webhook
+        this._notifyWebhook(
+            userDisplayName, 
+            'NUEVA_MUSICA', 
+            `Ha subido un nuevo tema: *${music.nombre}*`, 
+            music.proyecto_id,
+            null,
+            data[0].id
+        );
+
+        return data[0];
+    },
+
+    async updateMusic(id, music) {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        
+        const updateData = {
+            proyecto_id: music.proyecto_id || null,
+            nombre: music.nombre,
+            descripcion_corta: music.descripcion_corta || null,
+            letra: music.letra || null
+        };
+
+        if (music.url_archivo) {
+            updateData.url_archivo = music.url_archivo;
+        }
+
+        const { data, error } = await supabaseClient
+            .from('daviprojects_musica')
+            .update(updateData)
+            .eq('id', id)
+            .select();
+
+        if (error) throw error;
+        return data[0];
+    },
+
+    async toggleMusicReaction(musicaId, tipo) {
+        try {
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+            if (authError || !user) throw new Error("Debes iniciar sesión");
+
+            // Obtener nombre del usuario para el webhook
+            let userDisplayName = 'Usuario';
+            try {
+                const { data: profile } = await supabaseClient
+                    .from('daviplata_usuarios')
+                    .select('nombre')
+                    .eq('auth_id', user.id)
+                    .single();
+                if (profile && profile.nombre) userDisplayName = profile.nombre;
+            } catch (e) { console.error(e); }
+
+            // Obtener info de la canción para el mensaje
+            const { data: songInfo } = await supabaseClient
+                .from('daviprojects_musica')
+                .select('nombre, proyecto_id')
+                .eq('id', musicaId)
+                .single();
+
+            // 1. Verificar si ya existe la reacción (mismo usuario y canción)
+            const { data: existing, error: fError } = await supabaseClient
+                .from('daviprojects_musica_reacciones')
+                .select('id, tipo')
+                .eq('musica_id', musicaId)
+                .eq('usuario_id', user.id)
+                .maybeSingle();
+
+            if (fError) throw fError;
+
+            let actionText = '';
+            if (existing) {
+                if (existing.tipo === tipo) {
+                    // Caso A: Click en el mismo botón -> ELIMINAR reacción
+                    const { error: dError } = await supabaseClient
+                        .from('daviprojects_musica_reacciones')
+                        .delete()
+                        .eq('id', existing.id);
+                    if (dError) throw dError;
+                    actionText = `ha quitado su reacción a *${songInfo?.nombre || 'un tema'}*`;
+                } else {
+                    // Caso B: Click en el botón opuesto -> ACTUALIZAR tipo
+                    const { error: uError } = await supabaseClient
+                        .from('daviprojects_musica_reacciones')
+                        .update({ tipo: tipo })
+                        .eq('id', existing.id);
+                    if (uError) throw uError;
+                    actionText = `ha cambiado su reacción a *${tipo === 'like' ? 'Me gusta 👍' : 'No me gusta 👎'}* en *${songInfo?.nombre || 'un tema'}*`;
+                }
+            } else {
+                // Caso C: No existía reacción -> INSERTAR
+                const { error: iError } = await supabaseClient
+                    .from('daviprojects_musica_reacciones')
+                    .insert([{ 
+                        musica_id: musicaId, 
+                        usuario_id: user.id, 
+                        tipo: tipo 
+                    }]);
+                if (iError && iError.code !== '23505') throw iError;
+                actionText = `ha reaccionado con *${tipo === 'like' ? 'Me gusta 👍' : 'No me gusta 👎'}* a *${songInfo?.nombre || 'un tema'}*`;
+            }
+
+            // Notificar Webhook
+            if (actionText) {
+                this._notifyWebhook(
+                    userDisplayName, 
+                    'REACCION_MUSICA', 
+                    actionText, 
+                    songInfo?.proyecto_id,
+                    null,
+                    musicaId
+                );
+            }
+
+            // Obtener conteos actualizados para la UI
+            const { data: updatedSong, error: sError } = await supabaseClient
+                .from('daviprojects_musica')
+                .select('likes_total, dislikes_total')
+                .eq('id', musicaId)
+                .single();
+
+            if (sError) throw sError;
+
+            return { 
+                success: true, 
+                likes_total: updatedSong?.likes_total || 0, 
+                dislikes_total: updatedSong?.dislikes_total || 0 
+            };
+        } catch (err) {
+            console.error("[Storage] Error crítico en toggleMusicReaction:", err);
+            throw err;
+        }
     }
 };
 

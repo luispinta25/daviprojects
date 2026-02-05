@@ -30,25 +30,29 @@ let ideaAudioChunks = [];
 let ideaTimerInterval = null;
 
 async function showIdeasView() {
-    currentProject = null;
-    document.getElementById('current-project-name').textContent = "Banco de Ideas";
-    
-    // UI Navigation
-    document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-    const ideasView = document.getElementById('ideas-view');
-    if (ideasView) ideasView.classList.remove('hidden');
-    
-    document.getElementById('view-controls')?.classList.add('hidden');
-    document.getElementById('sidebar')?.classList.add('closed');
-    document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
-    document.getElementById('nav-ideas')?.classList.add('active');
+    try {
+        currentProject = null;
+        document.getElementById('current-project-name').textContent = "Banco de Ideas";
+        
+        // UI Navigation
+        document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+        const ideasView = document.getElementById('ideas-view');
+        if (ideasView) ideasView.classList.remove('hidden');
+        
+        document.getElementById('view-controls')?.classList.add('hidden');
+        document.getElementById('sidebar')?.classList.add('closed');
+        document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
+        document.getElementById('nav-ideas')?.classList.add('active');
 
-    // FAB: Mostrar en ideas también
-    const fab = document.getElementById('btn-fab-project');
-    if (fab) fab.classList.remove('hidden');
+        // FAB: Mostrar en ideas también
+        const fab = document.getElementById('btn-fab-project');
+        if (fab) fab.classList.remove('hidden');
 
-    renderIdeas();
-    syncDataSilently();
+        renderIdeas();
+        syncDataSilently();
+    } catch (err) {
+        console.error("Error en showIdeasView:", err);
+    }
 }
 
 async function loadIdeas() {
@@ -515,6 +519,13 @@ function checkUser() {
 }
 
 async function showApp() {
+    // Asegurar que el loader sea visible inicialmente (por si acaso)
+    const splashLoader = document.getElementById('loading');
+    if (splashLoader) {
+        splashLoader.classList.remove('hidden');
+        splashLoader.style.display = 'flex';
+    }
+
     // Pedir permisos de notificación de una vez usando el Helper elegante
     if (window.NotificationHelper) {
         NotificationHelper.requestPermission(false);
@@ -545,17 +556,56 @@ async function showApp() {
     }
     
     // Configurar Sidebar Toggles
-    document.getElementById('btn-open-sidebar').onclick = () => {
-        document.getElementById('sidebar').classList.remove('closed');
-    };
-    document.getElementById('btn-close-sidebar').onclick = () => {
-        document.getElementById('sidebar').classList.add('closed');
-    };
+    const btnOpenSidebar = document.getElementById('btn-open-sidebar');
+    if (btnOpenSidebar) {
+        btnOpenSidebar.onclick = (e) => {
+            e.preventDefault();
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.remove('closed');
+        };
+    }
+    
+    const btnCloseSidebar = document.getElementById('btn-close-sidebar');
+    if (btnCloseSidebar) {
+        btnCloseSidebar.onclick = (e) => {
+            e.preventDefault();
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.add('closed');
+        };
+    }
 
     // Sidebar Navigation
-    document.getElementById('nav-dashboard').onclick = showGallery;
-    document.getElementById('nav-ideas').onclick = showIdeasView;
-    document.getElementById('nav-projects').onclick = showFullProjectsView;
+    const navDashboard = document.getElementById('nav-dashboard');
+    if (navDashboard) {
+        navDashboard.onclick = (e) => {
+            e.preventDefault();
+            showGallery();
+        };
+    }
+    
+    const navIdeas = document.getElementById('nav-ideas');
+    if (navIdeas) {
+        navIdeas.onclick = (e) => {
+            e.preventDefault();
+            showIdeasView();
+        };
+    }
+    
+    const navMusic = document.getElementById('nav-music');
+    if (navMusic) {
+        navMusic.onclick = (e) => {
+            e.preventDefault();
+            showMusicView();
+        };
+    }
+    
+    const navProjects = document.getElementById('nav-projects');
+    if (navProjects) {
+        navProjects.onclick = (e) => {
+            e.preventDefault();
+            showFullProjectsView();
+        };
+    }
 
     // Configurar Notificaciones Push
     const btnNotif = document.getElementById('btn-notifications');
@@ -589,10 +639,15 @@ async function showApp() {
     if (btnAll) btnAll.onclick = showFullProjectsView;
 
     // Home & Logout
-    document.getElementById('btn-home').onclick = showGallery;
-    document.getElementById('btn-logout').onclick = async () => {
-        await AuthService.logout();
-    };
+    const btnHome = document.getElementById('btn-home');
+    if (btnHome) btnHome.onclick = showGallery;
+    
+    const btnLogout = document.getElementById('btn-logout');
+    if (btnLogout) {
+        btnLogout.onclick = async () => {
+            await AuthService.logout();
+        };
+    }
 
     // Cargar proyectos de Supabase
     projects = await Storage.getProjects();
@@ -602,7 +657,19 @@ async function showApp() {
     const urlParams = new URLSearchParams(window.location.search);
     const taskIdParam = urlParams.get('taskId');
     const projectIdParam = urlParams.get('projectId');
+    const musicIdParam = urlParams.get('musicId');
+    const targetTypeParam = urlParams.get('targetType');
     
+    // 0. Si hay una música (Prioridad alta para el hub musical)
+    if (musicIdParam) {
+        await showMusicView();
+        setTimeout(() => {
+            playMusicDesktop(musicIdParam);
+            hideLoading();
+        }, 800);
+        return;
+    }
+
     // 1. Si hay una tarea, la buscamos para saber a qué proyecto pertenece
     if (taskIdParam) {
         try {
@@ -611,7 +678,10 @@ async function showApp() {
                 const targetProject = projects.find(p => p.id === targetTask.proyecto_id);
                 if (targetProject) {
                     await selectProject(targetProject);
-                    setTimeout(() => openTaskModal(taskIdParam), 500);
+                    setTimeout(() => {
+                        openTaskModal(taskIdParam, targetTypeParam);
+                        hideLoading(); 
+                    }, 500);
                     return;
                 }
             }
@@ -625,16 +695,23 @@ async function showApp() {
         const targetProject = projects.find(p => p.id === projectIdParam);
         if (targetProject) {
             await selectProject(targetProject);
+            hideLoading();
             return;
         }
     }
 
     // Ya no seleccionamos el primer proyecto por defecto, mostramos la galería (Dashboard)
     await showGallery();
+    
+    // El sidebar debe estar por defecto cerrado
+    document.getElementById('sidebar')?.classList.add('closed');
+
+    hideLoading();
 }
 
 async function updateDashboardMetrics() {
-    document.getElementById('count-projects').textContent = projects.length;
+    const countProjectsEl = document.getElementById('count-projects');
+    if (countProjectsEl) countProjectsEl.textContent = projects.length;
     
     let allCombinedTasks = [];
     for(const p of projects) {
@@ -653,8 +730,11 @@ async function updateDashboardMetrics() {
     const done = validTasks.filter(t => t.estado === 'DONE').length;
     const review = allCombinedTasks.filter(t => t.estado === 'REVIEW').length;
     
-    document.getElementById('count-tasks-pending').textContent = pending;
-    document.getElementById('count-tasks-done').textContent = done;
+    const countPendingEl = document.getElementById('count-tasks-pending');
+    if (countPendingEl) countPendingEl.textContent = pending;
+    
+    const countDoneEl = document.getElementById('count-tasks-done');
+    if (countDoneEl) countDoneEl.textContent = done;
     
     const countReviewEl = document.getElementById('count-tasks-review');
     if (countReviewEl) countReviewEl.textContent = review;
@@ -696,72 +776,86 @@ async function syncDataSilently() {
 
 // --- PROJECTS ---
 async function showGallery() {
-    currentProject = null;
-    document.getElementById('current-project-name').textContent = "Dashboard";
-    
-    // FAB: Ocultar en el Dashboard
-    const fab = document.getElementById('btn-fab-project');
-    if (fab) fab.classList.add('hidden');
+    try {
+        currentProject = null;
+        document.getElementById('current-project-name').textContent = "Dashboard";
+        
+        // FAB: Ocultar en el Dashboard
+        const fab = document.getElementById('btn-fab-project');
+        if (fab) fab.classList.add('hidden');
 
-    // Ocultar todas las vistas y mostrar el dashboard
-    document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-    document.getElementById('gallery-view').classList.remove('hidden');
-    
-    const viewControls = document.getElementById('view-controls');
-    if (viewControls) viewControls.classList.add('hidden');
-    
-    // Auto-contraer sidebar
-    document.getElementById('sidebar')?.classList.add('closed');
+        // Ocultar todas las vistas y mostrar el dashboard
+        document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+        const galleryView = document.getElementById('gallery-view');
+        if (galleryView) galleryView.classList.remove('hidden');
+        
+        const viewControls = document.getElementById('view-controls');
+        if (viewControls) viewControls.classList.add('hidden');
+        
+        // Auto-contraer sidebar siempre al escoger un módulo
+        document.getElementById('sidebar')?.classList.add('closed');
 
-    // Navegación active
-    document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
-    document.getElementById('nav-dashboard')?.classList.add('active');
+        // Navegación active
+        document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
+        document.getElementById('nav-dashboard')?.classList.add('active');
 
-    renderProjectList();
-    renderProjectGallery('project-gallery', 3, true);
+        renderProjectList();
+        await renderProjectGallery('project-gallery', 3, true);
 
-    // Sincronizar en segundo plano
-    syncDataSilently();
+        // Sincronizar en segundo plano
+        syncDataSilently();
+    } catch (err) {
+        console.error("Error en showGallery:", err);
+    }
 }
 
 async function showFullProjectsView() {
-    currentProject = null;
-    document.getElementById('current-project-name').textContent = "Todos los Proyectos";
-    
-    // FAB: Mostrar para añadir proyectos
-    const fab = document.getElementById('btn-fab-project');
-    if (fab) fab.classList.remove('hidden');
+    try {
+        currentProject = null;
+        document.getElementById('current-project-name').textContent = "Todos los Proyectos";
+        
+        // FAB: Mostrar para añadir proyectos
+        const fab = document.getElementById('btn-fab-project');
+        if (fab) fab.classList.remove('hidden');
 
-    // Ocultar todas las vistas y mostrar la de proyectos
-    document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-    const projectsView = document.getElementById('projects-view');
-    if (projectsView) projectsView.classList.remove('hidden');
+        // Ocultar todas las vistas y mostrar la de proyectos
+        document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+        const projectsView = document.getElementById('projects-view');
+        if (projectsView) projectsView.classList.remove('hidden');
 
-    const viewControls = document.getElementById('view-controls');
-    if (viewControls) viewControls.classList.add('hidden');
-    
-    // Auto-contraer sidebar
-    document.getElementById('sidebar')?.classList.add('closed');
+        const viewControls = document.getElementById('view-controls');
+        if (viewControls) viewControls.classList.add('hidden');
+        
+        // Auto-contraer sidebar siempre al escoger un módulo
+        document.getElementById('sidebar')?.classList.add('closed');
 
-    // Navegación active
-    document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
-    document.getElementById('nav-projects')?.classList.add('active');
+        // Navegación active
+        document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
+        document.getElementById('nav-projects')?.classList.add('active');
 
-    renderProjectList();
-    renderProjectGallery('full-project-gallery', null, false);
+        renderProjectList();
+        await renderProjectGallery('full-project-gallery', null, false);
 
-    // Sincronizar en segundo plano
-    syncDataSilently();
+        // Sincronizar en segundo plano
+        syncDataSilently();
+    } catch (err) {
+        console.error("Error en showFullProjectsView:", err);
+    }
 }
 
 async function refreshProjectViews() {
     renderProjectList();
-    if (!document.getElementById('gallery-view').classList.contains('hidden')) {
+    
+    const galleryView = document.getElementById('gallery-view');
+    if (galleryView && !galleryView.classList.contains('hidden')) {
         await renderProjectGallery('project-gallery', 3, true);
     }
-    if (!document.getElementById('projects-view').classList.contains('hidden')) {
+    
+    const projectsView = document.getElementById('projects-view');
+    if (projectsView && !projectsView.classList.contains('hidden')) {
         await renderProjectGallery('full-project-gallery', null, false);
     }
+    
     updateDashboardMetrics();
 }
 
@@ -1063,16 +1157,26 @@ function renderProjectList() {
     
     projects.forEach(project => {
         const li = document.createElement('li');
-        li.className = 'nav-item';
+        // Usar clases consistentes con el CSS
         li.innerHTML = `
-            <div class="nav-item-content">
-                <i class="fas fa-folder"></i>
-                <span>${project.nombre || project.name}</span>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <i class="fas fa-folder" style="color: ${project.color || '#94a3b8'};"></i>
+                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">
+                    ${project.nombre || project.name || 'Sin nombre'}
+                </span>
             </div>
             <i class="fas fa-chevron-right arrow"></i>
         `;
-        li.onclick = () => selectProject(project);
-        if (currentProject && currentProject.id === project.id) li.classList.add('active');
+        
+        if (currentProject && currentProject.id === project.id) {
+            li.className = 'active';
+        }
+
+        li.onclick = (e) => {
+            e.preventDefault();
+            selectProject(project);
+        };
+
         projectList.appendChild(li);
     });
 }
@@ -1108,11 +1212,13 @@ async function selectProject(project) {
         if (loadingKanban) loadingKanban.classList.remove('hidden');
     }
     
-    // Auto-contraer sidebar
-    document.getElementById('sidebar').classList.add('closed');
+    // Auto-contraer sidebar solo si es pantalla pequeña
+    if (window.innerWidth <= 1024) {
+        document.getElementById('sidebar')?.classList.add('closed');
+    }
 
     // Navegación active
-    document.getElementById('nav-dashboard').classList.remove('active');
+    document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
 
     renderProjectList();
     
@@ -1984,6 +2090,14 @@ function showLoading() {
 function hideLoading() {
     const modal = document.getElementById('modal-loading');
     if (modal) modal.classList.add('hidden');
+    
+    // También ocultamos el splash screen inicial si existe (id="loading")
+    const splash = document.getElementById('loading');
+    if (splash) splash.style.display = 'none';
+
+    // Aseguramos que la app sea visible
+    const app = document.getElementById('app');
+    if (app) app.style.display = 'block';
 }
 
 function closeModals() {
@@ -2217,7 +2331,13 @@ function handleSelectedFile(file) {
             previewThumbnail.appendChild(img);
             previewThumbnail.classList.remove('hidden');
         }
+        // Mostrar botón de editar más notorio (Desktop)
+        const editBtn = document.getElementById('btn-edit-desktop-preview');
+        if (editBtn) editBtn.classList.remove('hidden');
     } else {
+        const editBtn = document.getElementById('btn-edit-desktop-preview');
+        if (editBtn) editBtn.classList.add('hidden');
+
         let iconClass = 'fa-file';
         if (file.type === 'application/pdf') iconClass = 'fa-file-pdf';
         else if (file.type.startsWith('audio/')) iconClass = 'fa-file-audio';
@@ -2233,33 +2353,23 @@ function handleSelectedFile(file) {
 
 async function processFile(file) {
     if (file.type.startsWith('image/')) {
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = (event) => {
-                const img = new Image();
-                img.src = event.target.result;
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    const MAX_WIDTH = 1200;
-                    let width = img.width;
-                    let height = img.height;
-                    if (width > MAX_WIDTH) {
-                        height *= MAX_WIDTH / width;
-                        width = MAX_WIDTH;
-                    }
-                    canvas.width = width;
-                    canvas.height = height;
-                    ctx.drawImage(img, 0, 0, width, height);
-                    canvas.toBlob((blob) => {
-                        resolve(new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".webp", { type: 'image/webp' }));
-                    }, 'image/webp', 0.8);
-                };
-            };
-        });
+        return await ChatUtils.compressToWebP(file);
     }
     return file; // PDF y Audio se suben directo
+}
+
+// Función para abrir el editor desde el avance de archivo
+function openEditorFromPreview() {
+    if (!selectedFile || !selectedFile.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.readAsDataURL(selectedFile);
+    reader.onload = (e) => {
+        ImageEditor.open(e.target.result, (editedFile) => {
+            selectedFile = editedFile;
+            const previewImg = attachmentPreview.querySelector('img');
+            if (previewImg) previewImg.src = URL.createObjectURL(editedFile);
+        });
+    };
 }
 
 // Zoom y Audio Global
@@ -2289,6 +2399,9 @@ const playerDownloadBtn = document.getElementById('player-download-btn');
 const playerCloseBtn = document.getElementById('player-close-btn');
 
 function toggleAudio(btn, url) {
+    // Asegurar que el reproductor sea visible si se inicia cualquier audio
+    audioPlayerBar?.classList.remove('hidden');
+
     if (activeAudio && activeAudio.src === url) {
         if (activeAudio.paused) {
             if (playerPlayBtn) playerPlayBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -2362,8 +2475,13 @@ function toggleAudio(btn, url) {
             playerVolume.dispatchEvent(new Event('input'));
         }
 
-        // Mostrar el reproductor inmediatamente para feedback visual
-        audioPlayerBar?.classList.remove('hidden');
+        // Si no es música (es una nota de tarea), ocultar reacciones y poner título genérico
+        if (!window.currentDaviMusic) {
+            document.getElementById('player-music-reactions')?.classList.add('hidden');
+            document.getElementById('player-song-title').textContent = "Nota de audio de la tarea";
+            document.getElementById('player-main-icon').innerHTML = '<i class="fas fa-microphone"></i>';
+        }
+
         if (playerPlayBtn) playerPlayBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
@@ -2497,6 +2615,7 @@ playerCloseBtn?.addEventListener('click', () => {
             if (activeAudioBtn) activeAudioBtn.innerHTML = '<i class="fas fa-play"></i>';
         }
     }
+    window.currentDaviMusic = null;
     audioPlayerBar?.classList.add('hidden');
 });
 
@@ -2617,7 +2736,7 @@ function renderTaskElements(shouldScroll = false) {
         if (item.reply_to_id) {
             const parent = taskElements.find(e => e.id === item.reply_to_id);
             if (parent) {
-                const parentText = parent.contenido ? parent.contenido : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
+                const parentText = parent.contenido ? ChatUtils.linkify(parent.contenido) : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
                 replyHTML = `
                     <div class="reply-reference" onclick="scrollToMessage('${parent.id}')">
                         <span class="reply-author">${parent.usuario_id === currentUserId ? 'Tú' : (parent.usuario_nombre || 'Usuario')}</span>
@@ -2635,7 +2754,7 @@ function renderTaskElements(shouldScroll = false) {
 
             if (isImage) {
                 attachmentHTML = `
-                    <div class="comment-image-preview" onclick="openZoom('${item.archivo_url}')">
+                    <div class="comment-image-preview" onclick="ImageViewer.open('${item.archivo_url}', '${item.id}')">
                         <img src="${item.archivo_url}" alt="Adjunto">
                     </div>`;
             } else if (isAudio) {
@@ -2690,7 +2809,7 @@ function renderTaskElements(shouldScroll = false) {
             </div>
             <div class="comment-content">
                 ${replyHTML}
-                <p>${item.contenido}</p>
+                <p>${ChatUtils.linkify(item.contenido)}</p>
                 ${attachmentHTML}
             </div>
         `;
@@ -2721,11 +2840,43 @@ function toggleCommentMenu(event, id) {
     setTimeout(() => document.addEventListener('click', closeMenu), 10);
 }
 
+async function replyMessage() {
+    // ... esta función parece que no existe o tiene otro nombre
+}
+
+window.replyToMessageWithEditedImage = async (file, originId) => {
+    try {
+        const overlay = document.getElementById('comment-uploading-overlay');
+        overlay?.classList.remove('hidden');
+
+        const path = `daviprojects/task_${editingTaskId}/${Date.now()}_edited_image.webp`;
+        const archiveUrl = await Storage.uploadFile(file, path);
+
+        const posicion = taskElements.filter(e => e.tipo === 'COMMENT').length;
+        const newElement = await Storage.addTaskElement({
+            taskId: editingTaskId,
+            tipo: 'COMMENT',
+            contenido: 'He editado esta imagen:',
+            posicion: posicion,
+            archivo_url: archiveUrl,
+            archivo_tipo: 'image',
+            reply_to_id: originId
+        });
+        
+        taskElements.push(newElement);
+        renderTaskElements(true);
+        overlay?.classList.add('hidden');
+    } catch (err) {
+        console.error("Error al enviar imagen editada:", err);
+        alert("No se pudo enviar el mensaje editado.");
+    }
+};
+
 function replyComment(id) {
     const item = taskElements.find(e => e.id === id);
     if (!item) return;
-
     currentReplyId = id;
+
     const preview = document.getElementById('reply-preview');
     const author = document.getElementById('reply-preview-author');
     const text = document.getElementById('reply-preview-text');
@@ -2858,7 +3009,10 @@ async function addElementFromUI(type) {
         });
         taskElements.push(newElement);
         input.value = '';
-        renderTaskElements();
+        if (type === 'COMMENT') {
+            autoResizeTextarea(input);
+        }
+        renderTaskElements(true); // Siempre scroll al enviar uno propio
 
         let logDetail = `Añadió un *${labels[type] || 'elemento'}*:\n"${content || (archivo_tipo ? 'Archivo adjunto' : '')}"`;
         let logActionType = 'AÑADIR';
@@ -2997,29 +3151,49 @@ async function initGlobalRealtime() {
         .on(
             'postgres_changes',
             {
-                event: 'INSERT',
+                event: '*', // Escuchar INSERT, UPDATE y DELETE
                 schema: 'public',
                 table: 'daviprojects_elementos_tarea'
             },
             (payload) => {
-                console.log('¡Nuevo elemento detectado via Realtime!', payload);
+                console.log('⚡ Evento Realtime detectado:', payload.eventType, payload);
                 const newEl = payload.new;
+                const oldEl = payload.old;
                 
-                // 1. Si estamos viendo la tarea que cambió, refrescar lista
-                if (typeof editingTaskId !== 'undefined' && editingTaskId === newEl.tarea_id) {
-                    console.log('Refrescando elementos de la tarea actual:', editingTaskId);
-                    fetchTaskElements(editingTaskId, true);
+                // 1. Validar si el cambio afecta a la tarea que estamos viendo
+                // Si es DELETE, a menudo no viene tarea_id en oldEl, así que buscamos por ID en nuestra lista actual
+                const affectedTaskId = newEl ? newEl.tarea_id : (oldEl ? oldEl.tarea_id : null);
+                const isRelevant = (typeof editingTaskId !== 'undefined' && editingTaskId === affectedTaskId) || 
+                                  (payload.eventType === 'DELETE' && oldEl && taskElements.some(e => e.id === oldEl.id));
+                
+                if (isRelevant) {
+                    if (payload.eventType === 'INSERT') {
+                        // Optimización: No re-peticionar todo, solo añadir el nuevo si no está
+                        const exists = taskElements.some(e => e.id === newEl.id);
+                        if (!exists) {
+                            console.log('📝 Añadiendo nuevo elemento vía Realtime...');
+                            taskElements.push(newEl);
+                            renderTaskElements(true); // Scroll si es nuevo
+                        }
+                    } else if (payload.eventType === 'UPDATE') {
+                        console.log('🔄 Actualizando elemento vía Realtime...');
+                        const index = taskElements.findIndex(e => e.id === newEl.id);
+                        if (index !== -1) {
+                            taskElements[index] = newEl;
+                            renderTaskElements(false); // No scroll al editar
+                        } else {
+                            // Si no lo tenemos por alguna razón, refrescar todo
+                            fetchTaskElements(editingTaskId, true);
+                        }
+                    } else if (payload.eventType === 'DELETE') {
+                        console.log('🗑️ Eliminando elemento vía Realtime...');
+                        taskElements = taskElements.filter(e => e.id !== oldEl.id);
+                        renderTaskElements(false);
+                    }
                 }
 
-                // 2. Si no fuimos nosotros, mostrar notificación y sonido
-                console.log('Comparando usuarios:', {
-                    recibido: newEl.usuario_id,
-                    actual: currentUserId,
-                    esPropio: newEl.usuario_id === currentUserId
-                });
-
-                if (newEl.usuario_id !== currentUserId) {
-                    console.log('Notificación habilitada: Intentando sonido y visuales...');
+                // 2. Gestionar notificaciones (solo si no somos nosotros)
+                if (payload.eventType === 'INSERT' && newEl && newEl.usuario_id !== currentUserId) {
                     playNotificationSound();
                     
                     const labels = {
@@ -3031,23 +3205,8 @@ async function initGlobalRealtime() {
                     const typeLabel = labels[newEl.tipo] || 'nuevo elemento';
                     const userLabel = newEl.usuario_nombre || 'Un usuario';
                     
-                    showToast(
-                        typeLabel,
-                        userLabel,
-                        newEl.contenido,
-                        newEl.tarea_id,
-                        newEl.tipo
-                    );
-
-                    showPushNotification(
-                        typeLabel,
-                        userLabel,
-                        newEl.contenido,
-                        newEl.tarea_id,
-                        newEl.tipo
-                    );
-                } else {
-                    console.log('Notificación omitida: El cambio fue realizado por el usuario actual.');
+                    showToast(typeLabel, userLabel, newEl.contenido, newEl.tarea_id, newEl.tipo);
+                    showPushNotification(typeLabel, userLabel, newEl.contenido, newEl.tarea_id, newEl.tipo);
                 }
             }
         )
@@ -3142,6 +3301,668 @@ function showToast(type, user, content, taskId, targetType = null) {
             setTimeout(() => toast.remove(), 300);
         }
     }, 8000);
+}
+
+// --- FUNCIONES DE MÚSICA DESKTOP ---
+async function showMusicView() {
+    try {
+        currentProject = null;
+        const projectNameEl = document.getElementById('current-project-name');
+        if (projectNameEl) projectNameEl.textContent = "DreamNotes Music Studio";
+
+        document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+        const musicView = document.getElementById('music-view');
+        if (musicView) musicView.classList.remove('hidden');
+
+        if (window.innerWidth <= 1024) {
+            document.getElementById('sidebar')?.classList.add('closed');
+        }
+        document.getElementById('view-controls')?.classList.add('hidden');
+        document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
+        document.getElementById('nav-music')?.classList.add('active');
+
+        renderMusicList();
+    } catch (err) {
+        console.error("Error en showMusicView:", err);
+    }
+}
+
+// --- MÓDULO MÚSICA DESKTOP ---
+let desktopMusicData = [];
+let isReactingDesktop = false;
+let currentMusicFilter = 'all';
+let musicViewMode = 'grid'; // 'grid' o 'list'
+
+// Configuración de Caché DreamNotes Music
+const MUSIC_CACHE_KEY = 'dreamnotes_music_cache';
+const MUSIC_CACHE_DAYS = 7;
+
+function getMusicCacheDesktop() {
+    const cached = localStorage.getItem(MUSIC_CACHE_KEY);
+    if (!cached) return null;
+    try {
+        const parsed = JSON.parse(cached);
+        const days = (Date.now() - parsed.timestamp) / (1000 * 60 * 60 * 24);
+        return days > MUSIC_CACHE_DAYS ? null : parsed.data;
+    } catch (e) { return null; }
+}
+
+function saveMusicCacheDesktop(data) {
+    localStorage.setItem(MUSIC_CACHE_KEY, JSON.stringify({
+        timestamp: Date.now(),
+        data: data
+    }));
+}
+
+function getStarColorDesktop(percentage) {
+    if (percentage === 0) return '#cbd5e1'; 
+    if (percentage < 40) return '#ef4444';  
+    if (percentage < 75) return '#f97316';  
+    return '#facc15';                       
+}
+
+async function renderMusicList(skipFetch = false) {
+    const musicList = document.getElementById('music-list');
+    if (!musicList) return;
+    
+    window.currentDaviMusic = null; 
+
+    // 1. Intentar cargar desde caché para vista instantánea (Optimista)
+    const cachedData = getMusicCacheDesktop();
+    if (cachedData && !skipFetch && desktopMusicData.length === 0) {
+        desktopMusicData = cachedData;
+        console.log("Cargando música desde caché (Vista Instantánea)...");
+        _doRenderMusicList(); 
+        
+        // Actualizar en segundo plano sin bloquear al usuario
+        setTimeout(async () => {
+            try {
+                const freshData = await Storage.getMusic();
+                saveMusicCacheDesktop(freshData);
+                // Si la data cambió, re-renderizar silenciosamente
+                if (JSON.stringify(freshData) !== JSON.stringify(desktopMusicData)) {
+                    desktopMusicData = freshData;
+                    _doRenderMusicList();
+                }
+            } catch (e) { console.error("Error actualizando música en background (PC):", e); }
+        }, 300);
+        return;
+    }
+
+    // 2. Si no hay caché o es un refresh forzado, mostrar Screenlocker real
+    if (!skipFetch) showLoading();
+
+    try {
+        if (!skipFetch) {
+            desktopMusicData = await Storage.getMusic();
+            saveMusicCacheDesktop(desktopMusicData);
+        }
+        _doRenderMusicList();
+    } catch (e) {
+        console.error("Error al cargar música:", e);
+        musicList.innerHTML = `<p class="text-danger p-4">Error de conexión. Revisa tu internet.</p>`;
+    } finally {
+        if (!skipFetch) hideLoading();
+    }
+}
+
+function _doRenderMusicList() {
+    const musicList = document.getElementById('music-list');
+    if (!musicList) return;
+    
+    // Actualizar estadísticas del Hub
+    updateMusicStats();
+    
+    // Renderizar mini-recientes (los últimos 3 subidos)
+    renderRecentMini();
+
+    // Aplicar filtros y búsqueda
+    const searchTerm = document.getElementById('music-search-input')?.value.toLowerCase() || '';
+    
+    // Configurar modo de vista
+    if (musicList) {
+        musicList.className = `music-grid ${musicViewMode}-view`;
+    }
+
+    let filtered = desktopMusicData;
+    
+    // Filtro por categoría (Sidebar)
+    if (currentMusicFilter === 'favs') {
+        filtered = filtered.filter(s => (s.user_likes_count || 0) > 0);
+    } else if (currentMusicFilter === 'projects') {
+        filtered = filtered.filter(s => !!s.proyecto_id);
+    }
+
+    // Filtro por búsqueda
+    if (searchTerm) {
+        filtered = filtered.filter(s => 
+            s.nombre.toLowerCase().includes(searchTerm) || 
+            (s.descripcion_corta && s.descripcion_corta.toLowerCase().includes(searchTerm))
+        );
+    }
+    
+    if (!filtered || filtered.length === 0) {
+        musicList.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 5rem; border: 2px dashed #e2e8f0; border-radius: 20px; color: #94a3b8;">
+            <i class="fas fa-search fa-3x" style="opacity: 0.1; margin-bottom: 1rem;"></i>
+            <p>No se encontraron temas con esos criterios.</p>
+        </div>`;
+        return;
+    }
+
+    musicList.innerHTML = '';
+
+    // Si es modo lista, añadir encabezados decorativos
+    if (musicViewMode === 'list') {
+        const header = document.createElement('div');
+        header.className = 'music-list-header';
+        header.innerHTML = `
+            <div class="h-cover"></div>
+            <div class="h-info">Título y descripción</div>
+            <div class="h-rating">Rating</div>
+            <div class="h-action"></div>
+        `;
+        musicList.appendChild(header);
+    }
+
+    filtered.forEach(song => {
+        const totalRec = (song.likes_total || 0) + (song.dislikes_total || 0);
+        const percentage = totalRec > 0 ? Math.round((song.likes_total || 0) / totalRec * 100) : 0;
+            const starColor = getStarColorDesktop(percentage);
+            
+            const coverImg = song.cover_url || '';
+
+            const card = document.createElement('div');
+            card.className = 'music-card fadeIn';
+            card.id = `music-card-pc-${song.id}`;
+            
+            card.innerHTML = `
+                <div class="music-card-cover" style="${coverImg ? `background-image: url(${coverImg}); background-size: cover; background-position: center;` : ''}">
+                    ${!coverImg ? '<i class="fas fa-compact-disc"></i>' : ''}
+                    <button class="btn-play-hover" onclick="playMusicDesktop('${song.id}')">
+                        <i class="fas fa-play"></i>
+                    </button>
+                </div>
+                <div class="music-card-info" onclick="editMusicDesktop('${song.id}')" style="cursor: pointer;">
+                    <h4>${song.nombre}</h4>
+                    <p>${song.descripcion_corta || 'Producción DreamNotes Music'}</p>
+                </div>
+                ${totalRec > 0 ? `
+                <div class="music-card-badge" style="color: ${starColor}">
+                    <i class="fas fa-star"></i> <span>${percentage}%</span>
+                </div>
+                ` : ''}`;
+            musicList.appendChild(card);
+        });
+}
+
+function updateMusicStats() {
+    const totalCountEl = document.getElementById('music-total-count');
+    const totalLikesEl = document.getElementById('music-total-likes');
+    
+    if (totalCountEl) totalCountEl.textContent = desktopMusicData.length;
+    if (totalLikesEl) {
+        // Contar solo temas que el usuario actual ha marcado como "like"
+        const myFavs = desktopMusicData.filter(s => (s.user_likes_count || 0) > 0).length;
+        totalLikesEl.textContent = myFavs;
+    }
+}
+
+function renderRecentMini() {
+    const list = document.getElementById('music-recent-small');
+    if (!list) return;
+
+    // Tomar los últmos 3 (ya vienen ordenados por created_at desc de Storage)
+    const lastThree = [...desktopMusicData].slice(0, 3);
+
+    list.innerHTML = lastThree.length ? '' : '<p class="text-muted small px-3">Aquí verás tus últimos temas.</p>';
+
+    lastThree.forEach(song => {
+        const item = document.createElement('div');
+        item.className = 'recent-toast-item';
+        
+        const artistName = song.artista || 'DreamNotes Music';
+
+        item.innerHTML = `
+            <div class="recent-toast-icon">
+                <i class="fas fa-play"></i>
+            </div>
+            <div class="recent-toast-info">
+                <div class="recent-toast-title">${song.nombre}</div>
+                <div class="recent-toast-sub">${artistName}</div>
+            </div>
+        `;
+        item.onclick = () => playMusicDesktop(song.id);
+        list.appendChild(item);
+    });
+}
+
+function editMusicDesktop(songId) {
+    const song = desktopMusicData.find(s => s.id === songId);
+    if (!song) return;
+
+    const modal = document.getElementById('modal-upload-music');
+    if (!modal) return;
+
+    // Guardar ID en dataset para saber que es edición
+    modal.dataset.editId = song.id;
+
+    // Cambiar UI a modo edición
+    modal.querySelector('h3').innerHTML = '<i class="fas fa-edit" style="color: #05a64b;"></i> DreamNotes Studio: Editar';
+    document.getElementById('btn-do-upload-music').innerText = 'Actualizar Cambios';
+
+    // Rellenar campos básicos
+    document.getElementById('pc-music-name').value = song.nombre || '';
+    document.getElementById('pc-music-desc').value = song.descripcion_corta || '';
+    document.getElementById('pc-music-lyrics').value = song.letra || '';
+
+    // Feedback de audio existente
+    const uploadDesign = document.querySelector('.file-upload-design');
+    if (uploadDesign) {
+        uploadDesign.innerHTML = `
+            <i class="fas fa-check-circle" style="color: #05a64b;"></i>
+            <span style="color: #05a64b; font-weight: 600;">Audio Sincronizado</span>
+            <span style="font-size: 0.7rem; opacity: 0.7;">Suelta un archivo nuevo si deseas reemplazarlo</span>
+        `;
+    }
+
+    // Cargar proyectos y seleccionar el actual
+    loadMusicProjectsPC().then(() => {
+        document.getElementById('pc-music-project').value = song.proyecto_id || '';
+    });
+
+    modal.classList.remove('hidden');
+}
+
+function playMusicDesktop(songId) {
+    const song = desktopMusicData.find(s => s.id === songId);
+    if (!song) return;
+
+    window.currentDaviMusic = song;
+    
+    // Actualizar metadatos en el player
+    const titleEl = document.getElementById('player-song-title');
+    if (titleEl) titleEl.textContent = song.nombre;
+    
+    const iconBox = document.getElementById('player-main-icon');
+    if (iconBox) iconBox.innerHTML = '<i class="fas fa-compact-disc fa-spin"></i>';
+
+    // Mostrar sección de reacciones en el player
+    const reactBox = document.getElementById('player-music-reactions');
+    if (reactBox) {
+        reactBox.classList.remove('hidden');
+        updatePlayerReactionsUI(song);
+    }
+
+    // Cambiar texto de descarga
+    if (playerDownloadBtn) {
+        playerDownloadBtn.onclick = () => Storage.downloadFile(song.url_archivo, `${song.nombre}.mp3`, playerDownloadBtn);
+    }
+
+    // Iniciar reproducción usando la lógica global existente
+    toggleAudio(null, song.url_archivo);
+}
+
+function updatePlayerReactionsUI(song) {
+    const likeBtn = document.getElementById('player-btn-like');
+    const dislikeBtn = document.getElementById('player-btn-dislike');
+    const likeCount = document.getElementById('player-count-like');
+    const dislikeCount = document.getElementById('player-count-dislike');
+
+    if (likeBtn) {
+        likeBtn.className = `p-btn-react ${song.user_likes_count > 0 ? 'active-like' : ''}`;
+        likeBtn.onclick = (e) => handleMusicReactionDesktop(e, song.id, 'like');
+    }
+    if (dislikeBtn) {
+        dislikeBtn.className = `p-btn-react ${song.user_dislikes_count > 0 ? 'active-dislike' : ''}`;
+        dislikeBtn.onclick = (e) => handleMusicReactionDesktop(e, song.id, 'dislike');
+    }
+    if (likeCount) likeCount.textContent = song.likes_total || 0;
+    if (dislikeCount) dislikeCount.textContent = song.dislikes_total || 0;
+}
+
+async function handleMusicReactionDesktop(event, musicId, type) {
+    if (isReactingDesktop) return;
+    isReactingDesktop = true;
+
+    // Buscamos la canción en los datos actuales
+    let targetSong = desktopMusicData.find(s => s.id === musicId);
+    if (!targetSong) { isReactingDesktop = false; return; }
+
+    const clickBtn = event.currentTarget;
+    const originalContent = clickBtn ? clickBtn.innerHTML : '';
+    const originalColor = clickBtn ? clickBtn.style.color : '';
+
+    if (clickBtn) {
+        clickBtn.style.transform = "scale(0.85)";
+        clickBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; 
+        clickBtn.disabled = true;
+    }
+
+    // Backup del estado previo por si falla la DB
+    const backup = {
+        likes: targetSong.likes_total || 0,
+        dislikes: targetSong.dislikes_total || 0,
+        uLike: targetSong.user_likes_count || 0,
+        uDislike: targetSong.user_dislikes_count || 0
+    };
+
+    try {
+        const result = await Storage.toggleMusicReaction(musicId, type);
+        
+        if (result && result.success) {
+            // Sincronización absoluta con lo que devolvió la DB
+            targetSong.likes_total = result.likes_total;
+            targetSong.dislikes_total = result.dislikes_total;
+            
+            // Actualizar estado del usuario según la acción confirmada
+            if (type === 'like') {
+                if (backup.uLike > 0) {
+                    targetSong.user_likes_count = 0;
+                } else {
+                    targetSong.user_likes_count = 1;
+                    targetSong.user_dislikes_count = 0;
+                }
+            } else {
+                if (backup.uDislike > 0) {
+                    targetSong.user_dislikes_count = 0;
+                } else {
+                    targetSong.user_dislikes_count = 1;
+                    targetSong.user_likes_count = 0;
+                }
+            }
+
+            // Sincronización absoluta con el objeto del reproductor si es el mismo tema
+            if (window.currentDaviMusic && window.currentDaviMusic.id === musicId) {
+                window.currentDaviMusic.likes_total = targetSong.likes_total;
+                window.currentDaviMusic.dislikes_total = targetSong.dislikes_total;
+                window.currentDaviMusic.user_likes_count = targetSong.user_likes_count;
+                window.currentDaviMusic.user_dislikes_count = targetSong.user_dislikes_count;
+            }
+        }
+    } catch (e) {
+        console.error("Error pc reaction:", e);
+        // Error -> Volvemos al backup
+        targetSong.likes_total = backup.likes;
+        targetSong.dislikes_total = backup.dislikes;
+        targetSong.user_likes_count = backup.uLike;
+        targetSong.user_dislikes_count = backup.uDislike;
+    } finally {
+        isReactingDesktop = false;
+        
+        // Timeout para asegurar que la DB y el DOM estÃ©n en sincronÃa absoluta
+        setTimeout(() => {
+            if (clickBtn) {
+                clickBtn.style.transform = "scale(1)";
+                clickBtn.disabled = false;
+                
+                // Forzar reconstrucciÃ³n del contenido para asegurar que los IDs del contador existan
+                if (type === 'like') {
+                    clickBtn.innerHTML = `<i class="fas fa-heart"></i> <span id="player-count-like">${targetSong.likes_total || 0}</span>`;
+                } else {
+                    clickBtn.innerHTML = `<i class="fas fa-heart-broken"></i> <span id="player-count-dislike">${targetSong.dislikes_total || 0}</span>`;
+                }
+            }
+            // REDIBUJAR TODA LA UI (Card y Player)
+            updateMusicCardUIDesktop(musicId, targetSong);
+        }, 50);
+    }
+}
+
+function updateMusicCardUIDesktop(musicId, song) {
+    // Si esta canción es la que suena en el player, actualizar el player
+    if (window.currentDaviMusic && window.currentDaviMusic.id === musicId) {
+        updatePlayerReactionsUI(song);
+    }
+
+    const card = document.getElementById(`music-card-pc-${musicId}`);
+    if (!card) return;
+
+    // Actualizar el Badge de Rating en la card si existe
+    const total = (song.likes_total || 0) + (song.dislikes_total || 0);
+    const pct = total > 0 ? Math.round((song.likes_total || 0) / total * 100) : 0;
+    const color = getStarColorDesktop(pct);
+    let badge = card.querySelector('.fa-star')?.parentElement;
+
+    if (total > 0) {
+        if (!badge) {
+            // Si no tiene badge y ahora lo necesita (aunque las cards nuevas siempre tienen la estructura)
+            badge = document.createElement('div');
+            badge.style.cssText = `position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 4px; font-weight: 800; font-size: 0.75rem; background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); transition: all 0.3s;`;
+            card.querySelector('.music-card-cover')?.appendChild(badge);
+        }
+        badge.style.color = color;
+        badge.innerHTML = `<i class="fas fa-star"></i> ${pct}%`;
+    } else if (badge) {
+        badge.remove();
+    }
+}
+
+// Inicializar clics de Dashbard y navegación
+document.addEventListener('DOMContentLoaded', () => {
+    // Escuchar búsqueda de música
+    const musicSearch = document.getElementById('music-search-input');
+    if (musicSearch) {
+        musicSearch.addEventListener('input', () => renderMusicList(true));
+    }
+
+    // Toggle Vista Grilla/Lista
+    const btnGrid = document.getElementById('btn-music-grid');
+    const btnList = document.getElementById('btn-music-list');
+    if (btnGrid && btnList) {
+        btnGrid.onclick = () => {
+            musicViewMode = 'grid';
+            btnGrid.classList.add('active');
+            btnList.classList.remove('active');
+            renderMusicList(true);
+        };
+        btnList.onclick = () => {
+            musicViewMode = 'list';
+            btnList.classList.add('active');
+            btnGrid.classList.remove('active');
+            renderMusicList(true);
+        };
+    }
+
+    // Escuchar filtros de la sidebar de música
+    document.querySelectorAll('.music-nav-filters li').forEach(li => {
+        li.addEventListener('click', (e) => {
+            document.querySelectorAll('.music-nav-filters li').forEach(el => el.classList.remove('active'));
+            li.classList.add('active');
+            currentMusicFilter = li.dataset.filter;
+            
+            // Actualizar título de la sección
+            const title = document.getElementById('music-list-title');
+            if (title) {
+                if (currentMusicFilter === 'all') title.textContent = "Explorar Todo";
+                else if (currentMusicFilter === 'favs') title.textContent = "Mis Favoritos";
+                else if (currentMusicFilter === 'projects') title.textContent = "Temas de Proyectos";
+            }
+
+            renderMusicList(true);
+        });
+    });
+
+    const btnDashMusic = document.getElementById('btn-dashboard-music');
+    if (btnDashMusic) btnDashMusic.onclick = showMusicView;
+
+    const btnDashIdea = document.getElementById('btn-dashboard-new-idea');
+    if (btnDashIdea) btnDashIdea.onclick = openIdeaModal;
+
+    const btnUploadMusic = document.getElementById('btn-upload-music');
+    if (btnUploadMusic) {
+        btnUploadMusic.onclick = () => {
+            const modal = document.getElementById('modal-upload-music');
+            if (modal) {
+                // Reset a modo subida
+                delete modal.dataset.editId;
+                modal.querySelector('h3').innerHTML = '<i class="fas fa-record-vinyl fa-spin" style="color: #05a64b;"></i> DreamNotes Music Studio';
+                document.getElementById('btn-do-upload-music').innerText = 'Sincronizar y Guardar';
+                
+                // Limpiar campos
+                document.getElementById('pc-music-name').value = '';
+                document.getElementById('pc-music-desc').value = '';
+                document.getElementById('pc-music-lyrics').value = '';
+                const fileInput = document.getElementById('pc-music-file');
+                if (fileInput) fileInput.value = '';
+
+                // Reset label del diseño de carga
+                const uploadDesign = document.querySelector('.file-upload-design');
+                if (uploadDesign) {
+                    uploadDesign.innerHTML = `
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <span>Arrastra o selecciona tu obra maestra</span>
+                    `;
+                }
+
+                modal.classList.remove('hidden');
+                loadMusicProjectsPC();
+            }
+        };
+    }
+
+    const btnCloseMusic = document.getElementById('close-music-modal');
+    if (btnCloseMusic) {
+        btnCloseMusic.onclick = () => document.getElementById('modal-upload-music').classList.add('hidden');
+    }
+
+    const btnCancelMusic = document.getElementById('btn-cancel-music-pc');
+    if (btnCancelMusic) {
+        btnCancelMusic.onclick = () => document.getElementById('modal-upload-music').classList.add('hidden');
+    }
+
+    // Drag and Drop & Feedback para el modal de música
+    const dropZone = document.querySelector('.file-upload-wrapper');
+    const fileInput = document.getElementById('pc-music-file');
+    const uploadDesign = document.querySelector('.file-upload-design');
+
+    if (dropZone && fileInput) {
+        // Prevenir comportamiento por defecto
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        // Feedback visual al arrastrar
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragging'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragging'), false);
+        });
+
+        // Manejar soltar archivos
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files && files.length > 0) {
+                fileInput.files = files;
+                updateMusicFileLabel(files[0].name);
+            }
+        }, false);
+
+        // Feedback al seleccionar vía click tradicional
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                updateMusicFileLabel(e.target.files[0].name);
+            }
+        });
+
+        function updateMusicFileLabel(fileName) {
+            if (uploadDesign) {
+                uploadDesign.innerHTML = `
+                    <i class="fas fa-file-audio" style="color: #05a64b;"></i>
+                    <span style="color: #05a64b; font-weight: 600;">${fileName}</span>
+                    <span style="font-size: 0.7rem; opacity: 0.7;">Listo para sincronizar</span>
+                `;
+            }
+        }
+    }
+
+    const btnDoUpload = document.getElementById('btn-do-upload-music');
+    if (btnDoUpload) {
+        btnDoUpload.onclick = async () => {
+            const modal = document.getElementById('modal-upload-music');
+            const editId = modal?.dataset.editId;
+            
+            const name = document.getElementById('pc-music-name').value;
+            const desc = document.getElementById('pc-music-desc').value;
+            const fileInput = document.getElementById('pc-music-file');
+            const projectId = document.getElementById('pc-music-project').value;
+            const lyrics = document.getElementById('pc-music-lyrics').value;
+
+            if (!name || (!editId && (!fileInput || !fileInput.files[0]))) {
+                alert("Completa el nombre y el archivo.");
+                return;
+            }
+
+            btnDoUpload.disabled = true;
+            btnDoUpload.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
+
+            try {
+                let publicUrl = null;
+                if (fileInput && fileInput.files && fileInput.files[0]) {
+                    const file = fileInput.files[0];
+                    const fileName = `${Date.now()}_${file.name}`;
+                    const path = `daviprojects/musicas/${fileName}`;
+                    publicUrl = await Storage.uploadFile(file, path);
+                }
+
+                if (editId) {
+                    await Storage.updateMusic(editId, {
+                        nombre: name,
+                        descripcion_corta: desc,
+                        proyecto_id: projectId || null,
+                        url_archivo: publicUrl, // Si es null, el store debería ignorarlo o mantener el anterior
+                        letra: lyrics
+                    });
+                } else {
+                    await Storage.addMusic({
+                        nombre: name,
+                        descripcion_corta: desc,
+                        proyecto_id: projectId || null,
+                        url_archivo: publicUrl,
+                        letra: lyrics
+                    });
+                }
+
+                modal.classList.add('hidden');
+                renderMusicList();
+                
+                // Limpiar
+                document.getElementById('pc-music-name').value = '';
+                document.getElementById('pc-music-desc').value = '';
+                document.getElementById('pc-music-lyrics').value = '';
+                if (fileInput) fileInput.value = '';
+                delete modal.dataset.editId;
+            } catch (err) {
+                console.error(err);
+                alert("Error al guardar música.");
+            } finally {
+                btnDoUpload.disabled = false;
+                btnDoUpload.innerText = editId ? 'Actualizar Cambios' : 'Sincronizar y Guardar';
+            }
+        };
+    }
+});
+
+async function loadMusicProjectsPC() {
+    const select = document.getElementById('pc-music-project');
+    if (!select) return;
+    try {
+        const projects = await Storage.getProjects();
+        select.innerHTML = '<option value="">Sin vincular</option>';
+        projects.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.nombre;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 // Register Service Worker

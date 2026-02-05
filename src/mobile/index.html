@@ -19,6 +19,23 @@
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <script src="/src/shared/supabase-config.js"></script>
     <script src="/src/shared/notification-helper.js"></script>
+    <script>
+        // Redirección responsiva dinámica
+        function checkRedirection() {
+            if (window.innerWidth > 768) {
+                window.location.replace("/src/desktop/index.html" + window.location.search);
+            }
+        }
+        window.addEventListener('resize', checkRedirection);
+        checkRedirection();
+
+        // Reforzar actualización de Service Worker si es necesario
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                window.location.reload();
+            });
+        }
+    </script>
     <style>
         #mobile-app { display: none; }
         .loading-screen {
@@ -137,7 +154,7 @@
                     && window.matchMedia("(min-width: 769px)").matches;
                 
                 if (isDesktop) {
-                    window.location.replace("../desktop/index.html");
+                    window.location.replace("../desktop/index.html" + window.location.search);
                     return;
                 }
 
@@ -150,33 +167,35 @@
 
                 const session = await AuthService.getSession();
                 if (!session) {
-                    window.location.replace("auth/login.html");
+                    const currentUrl = encodeURIComponent(window.location.href);
+                    window.location.replace("auth/login.html?redirect=" + currentUrl);
                     return;
                 }
 
                 // VALIDACIÓN ESTRICTA: Solo usuarios en daviplata_usuarios
                 try {
                     const profile = await AuthService.getUserProfile(session.user.id);
-                    if (!profile) throw new Error("Acceso denegado: No registrado");
+                    if (!profile) {
+                         await AuthService.logout(true);
+                         return;
+                    }
                     
-                    document.getElementById('mobile-app').style.display = 'block';
-                    document.getElementById('loading').style.display = 'none';
                     window.session = session;
+                    // El loader se ocultará dentro de script.js cuando todo esté listo
                 } catch (profError) {
-                    console.error(profError);
-                    await showMobileAlert("Acceso Denegado", "Lo sentimos, no hemos podido validar tu registro en el sistema. Contacta con soporte.");
-                    await supabaseClient.auth.signOut();
-                    window.location.replace("auth/login.html");
+                    console.error("Error validando perfil:", profError);
+                    const currentUrl = encodeURIComponent(window.location.href);
+                    window.location.replace("auth/login.html?expired=1&redirect=" + currentUrl);
                 }
             } catch (err) {
-                console.error("Error de acceso:", err);
-                window.location.replace("auth/login.html");
+                console.error("Critical error in mobile checkAccess:", err);
             }
         }
         checkAccess();
     </script>
 </head>
 <body>
+    <audio id="globalMusicAudio" preload="auto"></audio>
     <audio id="notifSound" src="https://cdnjs.cloudflare.com/ajax/libs/ion-sound/3.0.7/sounds/button_tiny.mp3" preload="auto"></audio>
     <div id="loading" class="loading-screen">
         <div class="spinner-loading"></div>
@@ -284,6 +303,24 @@
                 </div>
             </section>
 
+            <!-- Vista de Música -->
+            <section id="mobile-music-view" class="view hidden">
+                <div class="view-header-fixed">
+                    <h3>DreamNotes Music</h3>
+                    <button class="btn-icon" id="btn-upload-music-mobile"><i class="fas fa-plus"></i></button>
+                </div>
+
+                <div id="music-loader-container" class="ideas-loader hidden">
+                    <div class="loader-spinner"></div>
+                    <div id="music-loader-quote-text" class="loader-quote">"Afinando los últimos detalles..."</div>
+                    <div class="loader-author">DreamNotes Studio</div>
+                </div>
+
+                <div class="music-list-mobile" id="mobile-music-list">
+                    <!-- Lista de música -->
+                </div>
+            </section>
+
             <!-- Vista de Historial -->
             <section id="mobile-history-view" class="view hidden">
                 <div class="view-header-fixed">
@@ -346,6 +383,54 @@
             </section>
         </main>
 
+        <!-- Dynamic Music Toast Player -->
+        <div id="music-toast-player" class="music-toast-container hidden">
+            <div class="toast-progress-bar">
+                <div id="toast-progress-fill" class="progress-fill"></div>
+                <input type="range" id="music-seek-slider" class="seek-slider" value="0" step="0.1">
+            </div>
+            
+            <div class="toast-main-body">
+                <div class="toast-song-details">
+                    <div class="music-mini-icon"><i class="fas fa-music"></i></div>
+                    <div class="song-text">
+                        <h4 id="toast-song-name">Cargando...</h4>
+                        <span id="toast-song-status">Sincronizando</span>
+                    </div>
+                </div>
+
+                <div class="toast-controls-row">
+                    <div class="toast-reactions-player">
+                        <button id="btn-toast-like" class="btn-toast-reaction">
+                            <i class="fas fa-heart"></i>
+                            <span id="toast-like-count">0</span>
+                        </button>
+                        <button id="btn-toast-dislike" class="btn-toast-reaction">
+                            <i class="fas fa-heart-broken"></i>
+                            <span id="toast-dislike-count">0</span>
+                        </button>
+                    </div>
+                    
+                    <div class="volume-control-group">
+                        <button id="btn-toast-volume" class="btn-toast-icon"><i class="fas fa-volume-up"></i></button>
+                        <div id="toast-volume-popover" class="volume-popover hidden">
+                            <input type="range" id="music-volume-slider" min="0" max="1" step="0.01" value="1">
+                        </div>
+                    </div>
+
+                    <button id="btn-toast-play-pause" class="btn-toast-main">
+                        <i class="fas fa-play"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Floating Basic Player (For other views) -->
+        <button id="music-floating-play" class="music-floating-btn hidden">
+            <div class="pulse-ring"></div>
+            <i class="fas fa-play"></i>
+        </button>
+
         <nav class="bottom-nav">
             <button class="nav-item active" id="nav-btn-home" data-view="mobile-gallery-view">
                 <i class="fas fa-home"></i>
@@ -358,13 +443,13 @@
             <button class="nav-item-add" id="btn-add-main-mobile">
                 <i class="fas fa-plus"></i>
             </button>
-            <button class="nav-item" id="nav-btn-history" data-view="mobile-history-view">
-                <i class="fas fa-history"></i>
-                <span>Historial</span>
+            <button class="nav-item" id="nav-btn-music" data-view="mobile-music-view">
+                <i class="fas fa-music"></i>
+                <span>Música</span>
             </button>
-            <button class="nav-item" id="nav-btn-ideas" data-view="mobile-ideas-view">
-                <i class="fas fa-lightbulb"></i>
-                <span>Ideas</span>
+            <button class="nav-item" id="nav-btn-more" onclick="openMobileMoreMenu()">
+                <i class="fas fa-bars"></i>
+                <span>Más</span>
             </button>
         </nav>
     </div>
@@ -550,8 +635,11 @@
                 <!-- Area de Adjuntos -->
                 <div id="mobile-attachment-preview" class="hidden">
                     <div class="preview-item">
-                        <div id="mobile-preview-thumb-container" class="hidden">
-                            <img id="mobile-preview-img" src="" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover; margin-right: 10px;">
+                        <div id="mobile-preview-thumb-container" class="hidden" style="position: relative;">
+                            <img id="mobile-preview-img" src="" style="width: 44px; height: 44px; border-radius: 8px; object-fit: cover; margin-right: 12px;">
+                            <button id="m-btn-edit-preview" class="btn-edit-mini-badge hidden">
+                                <i class="fas fa-pencil-alt"></i> Editar
+                            </button>
                         </div>
                         <span id="mobile-file-name" style="flex: 1; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">archivo.jpg</span>
                         <button onclick="clearMobileAttachment()"><i class="fas fa-times"></i></button>
@@ -577,7 +665,7 @@
                     <button class="btn-chat-action" onclick="openMobileCamera()">
                         <i class="fas fa-camera"></i>
                     </button>
-                    <textarea id="new-comment-mobile" placeholder="Escribe un mensaje..."></textarea>
+                    <textarea id="new-comment-mobile" placeholder="Escribe un mensaje..." rows="1" oninput="autoResizeTextarea(this)"></textarea>
                     <button id="btn-send-comment-mobile" class="send-btn-chat"><i class="fas fa-paper-plane"></i></button>
                 </div>
             </div>
@@ -769,7 +857,78 @@
         </div>
     </div>
 
+    <!-- Modal "Más" (Ideas e Historial) -->
+    <div id="mobile-more-menu" class="mobile-bottom-sheet hidden" style="background: rgba(0,0,0,0.6); z-index: 3500;">
+        <div class="sheet-content" style="height: auto; padding-bottom: 2rem;">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <h3>Opciones</h3>
+                <button class="btn-icon circle" onclick="closeMobileSheet('mobile-more-menu')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sheet-body">
+                <div class="action-grid">
+                    <button class="action-card" onclick="goToMenuOption('mobile-ideas-view')">
+                        <div class="act-icon yellow" style="background: #fbbf24;"><i class="fas fa-lightbulb"></i></div>
+                        <span>Ideas</span>
+                    </button>
+                    <button class="action-card" onclick="goToMenuOption('mobile-history-view')">
+                        <div class="act-icon gray" style="background: #64748b;"><i class="fas fa-history"></i></div>
+                        <span>Historial</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Nueva Música -->
+    <div id="mobile-modal-music" class="mobile-bottom-sheet hidden" style="background: rgba(0,0,0,0.6); z-index: 4000;">
+        <div class="sheet-content" style="height: 85vh; border-radius: 2.5rem 2.5rem 0 0;">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header-modern">
+                <h3>Nuevo DreamNotes Music</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Comparte tus producciones con el equipo</p>
+            </div>
+            <div class="sheet-body music-modal-body">
+                <div class="file-upload-modern" id="music-drop-zone-mobile">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p class="file-status-text" id="music-file-status-mobile">Toca para seleccionar archivo MP3</p>
+                    <input type="file" id="music-file-mobile" accept="audio/*">
+                </div>
+
+                <div class="form-section">
+                    <label class="label-modern">Nombre de la canción</label>
+                    <input type="text" id="music-name-mobile" class="input-modern" placeholder="Ej: Master Final v2">
+                </div>
+
+                <div class="form-section">
+                    <label class="label-modern">Vincular a Proyecto</label>
+                    <select id="music-project-select-mobile" class="input-modern">
+                        <!-- Proyectos se cargarán dinámicamente -->
+                    </select>
+                </div>
+
+                <div class="form-section">
+                    <label class="label-modern">Descripción o Versión</label>
+                    <input type="text" id="music-desc-mobile" class="input-modern" placeholder="Ej: Versión con más bajos">
+                </div>
+
+                <div class="form-section">
+                    <label class="label-modern">Notas o Letra (Opcional)</label>
+                    <textarea id="music-lyrics-mobile" class="input-modern" style="height: 100px; resize: none;" placeholder="Escribe aquí..."></textarea>
+                </div>
+            </div>
+            <div class="sheet-footer" style="padding: 1.5rem;">
+                <button class="btn-confirm-full" id="btn-save-music-mobile" style="height: 56px; font-size: 1.1rem; border-radius: 16px; background: #082359;">
+                    <i class="fas fa-check-circle" style="margin-right: 8px;"></i> Guardar en la Nube
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="/src/shared/storage.js"></script>
+    <script src="/src/shared/chat-utils.js"></script>
+    <script src="/src/shared/image-editor.js"></script>
+    <script src="/src/shared/image-viewer.js"></script>
     <script src="/src/mobile/script.js"></script>
 </body>
 </html>

@@ -8,6 +8,7 @@ let currentAttachment = null;
 let currentMobileReplyId = null; 
 let currentUserIdMobile = null; 
 let taskElementsChannelMobile = null; // Canal Realtime para elementos de tarea
+let currentViewId = 'mobile-gallery-view';
 
 // --- NAVEGACIÓN ENTRE TABS ---
 document.addEventListener('click', (e) => {
@@ -101,7 +102,7 @@ async function loadMobileIdeas(silentMode = false) {
     if (loader && IDEA_QUOTES && !silentMode) {
         const randomQuote = IDEA_QUOTES[Math.floor(Math.random() * IDEA_QUOTES.length)];
         if (quoteText) quoteText.textContent = `"${randomQuote.text}"`;
-        if (quoteAuthor) quoteAuthor.textContent = `– ${randomQuote.author}`;
+        if (quoteAuthor) quoteAuthor.textContent = `- ${randomQuote.author}`;
         loader.classList.remove('hidden');
     }
     if (grid && !silentMode) grid.style.opacity = '0.3';
@@ -658,6 +659,23 @@ async function initMobile() {
     const urlParams = new URLSearchParams(window.location.search);
     const taskIdParam = urlParams.get('taskId');
     const projectIdParam = urlParams.get('projectId');
+    const musicIdParam = urlParams.get('musicId');
+    const targetTypeParam = urlParams.get('targetType');
+
+    // 0. Si hay una música (Deep link al player/hub)
+    if (musicIdParam) {
+        switchView('mobile-music-view');
+        // Pequeño retardo para asegurar que los datos de música se carguen (si no están ya)
+        setTimeout(async () => {
+            const song = (typeof mobileMusicData !== 'undefined' && mobileMusicData.length > 0) 
+                ? mobileMusicData.find(s => s.id === musicIdParam)
+                : (await Storage.getMusic()).find(s => s.id === musicIdParam);
+            
+            if (song) playSongMobile(song);
+        }, 800);
+        hideMobileSplash();
+        return;
+    }
     
     // 1. Si hay una tarea, buscamos su proyecto automáticamente
     if (taskIdParam) {
@@ -677,7 +695,10 @@ async function initMobile() {
             renderTasks();
 
             // Pequeña pausa para asegurar que el render de la lista terminó
-            setTimeout(() => openTaskDetail(taskIdParam), 300);
+            setTimeout(() => {
+                openTaskDetail(taskIdParam, targetTypeParam);
+                hideMobileSplash();
+            }, 300);
             return;
         }
     }
@@ -687,11 +708,20 @@ async function initMobile() {
         const targetProject = projects.find(p => p.id === projectIdParam);
         if (targetProject) {
             await selectProject(targetProject.id);
+            hideMobileSplash();
             return;
         }
     }
 
     switchView('mobile-gallery-view');
+    hideMobileSplash();
+}
+
+function hideMobileSplash() {
+    const splash = document.getElementById('loading');
+    if (splash) splash.style.display = 'none';
+    const app = document.getElementById('mobile-app');
+    if (app) app.style.display = 'block';
 }
 
 function updateMobilePriorityUI(level, prefix = 'mobile') {
@@ -790,10 +820,23 @@ function updateMetrics() {
 
 // --- VISTAS Y NAVEGACIÓN ---
 function switchView(viewId) {
+    currentViewId = viewId;
+    if (typeof updatePlayerVisibility === 'function') updatePlayerVisibility();
+
+    const mainHeader = document.querySelector('.mobile-header');
+    
     views.forEach(v => {
         v.classList.add('hidden');
         v.classList.remove('active');
     });
+
+    // Ocultar header principal en vistas que tienen su propio header sticky
+    if (viewId === 'mobile-tasks-view' || viewId === 'mobile-history-view' || viewId === 'mobile-music-view' || viewId === 'mobile-ideas-view') {
+        if (mainHeader) mainHeader.classList.add('hidden');
+    } else {
+        if (mainHeader) mainHeader.classList.remove('hidden');
+    }
+
     const target = document.getElementById(viewId);
     target.classList.remove('hidden');
     target.classList.add('active', 'fadeIn');
@@ -805,6 +848,8 @@ function switchView(viewId) {
         renderHistory();
     } else if (viewId === 'mobile-ideas-view') {
         loadMobileIdeas(true);
+    } else if (viewId === 'mobile-music-view') {
+        renderMusicListMobile();
     }
 
     // Actualizar nav bottom
@@ -815,26 +860,37 @@ function switchView(viewId) {
 
     // --- Lógica Contextual Botón CREAR ---
     const btnAddMain = document.getElementById('btn-add-main-mobile');
-    if (viewId === 'mobile-tasks-view') {
-        // Modo Tareas (Azul)
-        btnAddMain.classList.add('task-mode');
+    const btnAddIcon = btnAddMain.querySelector('i');
+
+    if (btnAddMain) {
+        if (viewId === 'mobile-tasks-view') {
+            btnAddMain.classList.add('task-mode');
+            btnAddMain.classList.remove('idea-mode');
+            if (btnAddIcon) btnAddIcon.className = 'fas fa-plus';
+        } else if (viewId === 'mobile-gallery-view') {
+            btnAddMain.classList.remove('task-mode');
+            btnAddMain.classList.add('idea-mode');
+            if (btnAddIcon) btnAddIcon.className = 'fas fa-lightbulb';
+        } else {
+            btnAddMain.classList.remove('task-mode', 'idea-mode');
+            if (btnAddIcon) btnAddIcon.className = 'fas fa-plus';
+        }
+
         btnAddMain.onclick = () => {
-            if (!currentProjectId) {
-                showMobileToast("Aviso", "Primero selecciona un proyecto", true);
-                return;
+            if (viewId === 'mobile-tasks-view') {
+                if (!currentProjectId) {
+                    showMobileToast("Aviso", "Primero selecciona un proyecto", true);
+                    return;
+                }
+                openMobileSheet('mobile-modal-task');
+            } else if (viewId === 'mobile-gallery-view') {
+                switchView('mobile-ideas-view');
+            } else if (viewId === 'mobile-all-projects-view') {
+                openMobileSheet('mobile-modal-project');
+            } else {
+                openMobileSheet('mobile-modal-actions');
             }
-            openMobileSheet('mobile-modal-task');
         };
-    } else if (viewId === 'mobile-gallery-view' || viewId === 'mobile-all-projects-view') {
-        // Modo Proyectos (Verde)
-        btnAddMain.classList.remove('task-mode');
-        btnAddMain.onclick = () => {
-            openMobileSheet('mobile-modal-project');
-        };
-    } else {
-        // Otros (Selector genérico)
-        btnAddMain.classList.remove('task-mode');
-        btnAddMain.onclick = () => openMobileSheet('mobile-modal-actions');
     }
 
     if (viewId === 'mobile-history-view') {
@@ -920,20 +976,6 @@ async function handleDeleteProjectMobile() {
         await loadMobileIdeas();
     } catch (e) {
         showMobileToast("Error", "No se pudo eliminar", true);
-    }
-}
-
-function renderDescriptionWithAudios(containerEl, text) {
-    containerEl.textContent = text;
-    const audioRegex = /(https?:\/\/[^\s]+?\.(mp3|wav|ogg|m4a|aac|flac)(\?[^\s]*)?)/gi;
-    const matches = text.match(audioRegex);
-    if (matches) {
-        matches.forEach((url, index) => {
-            const div = document.createElement('div');
-            div.style.marginTop = '12px';
-            div.innerHTML = `<p style="font-size: 0.75rem; margin-bottom: 5px; font-weight: 700; color: var(--primary);">AUDIO ADJUNTO:</p>` + renderElegantAudioPlayer(url, `desc-${Math.random().toString(36).substr(2, 9)}`);
-            containerEl.appendChild(div);
-        });
     }
 }
 
@@ -1043,13 +1085,26 @@ function handleMobileFileSelect(input) {
             reader.onload = (e) => {
                 imgPreview.src = e.target.result;
                 thumbContainer.classList.remove('hidden');
-                iconContainer.classList.add('hidden');
+                
+                // Mostrar botón de editar (Mobile)
+                const editBtn = document.getElementById('m-btn-edit-preview');
+                if (editBtn) {
+                    editBtn.classList.remove('hidden');
+                    editBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        ImageEditor.open(imgPreview.src, (editedFile) => {
+                            currentAttachment = editedFile;
+                            imgPreview.src = URL.createObjectURL(editedFile);
+                        });
+                    };
+                }
             };
             reader.readAsDataURL(currentAttachment);
         } else {
             thumbContainer.classList.add('hidden');
-            iconContainer.classList.remove('hidden');
-            // Cambiar icono según tipo si se desea (opcional)
+            const editBtn = document.getElementById('m-btn-edit-preview');
+            if (editBtn) editBtn.classList.add('hidden');
+            if (iconContainer) iconContainer.classList.remove('hidden');
         }
     }
 }
@@ -1171,133 +1226,107 @@ function getUserColor(name) {
 async function loadTaskElements(silent = false) {
     if (!currentTaskId) return;
     
-    const elements = await Storage.getTaskElements(currentTaskId);
+    console.log(`Cargando elementos de tarea ${currentTaskId}... (silent: ${silent})`);
     
-    // Detectar si hay mensajes nuevos
-    const oldMsgCount = currentElements.filter(e => e.tipo === 'COMMENT').length;
-    const newMsgCount = elements.filter(e => e.tipo === 'COMMENT').length;
+    // Si NO es silencio, o si la lista está vacía, forzamos recarga total
+    if (!silent || currentElements.length === 0) {
+        const elements = await Storage.getTaskElements(currentTaskId);
+        currentElements = elements;
+        console.log(`Se cargaron ${elements.length} elementos de la DB.`);
+    } else {
+        // Si es silencio, confiamos en que Realtime o la inserción local ya actualizó currentElements
+        console.log("Modo silencioso: Manteniendo elementos actuales para evitar parpadeos.");
+    }
     
-    currentElements = elements; 
-    
+    await renderTaskElementsMobile(true); // Siempre intentamos scroll si es necesario
+}
+
+async function renderTaskElementsMobile(checkScroll = false) {
+    console.log("Renderizando elementos de tarea (Mobile)...");
+    const elements = currentElements;
+    const commentsList = document.getElementById('mobile-comments-list');
+    if (!commentsList) return;
+
     // Checklist
     const checks = elements.filter(e => e.tipo === 'CHECKLIST').sort((a,b) => a.posicion - b.posicion);
-    document.getElementById('mobile-checklist-items').innerHTML = checks.map(e => `
-        <div class="check-item-mobile">
-            <div class="check-box ${e.completada ? 'checked' : ''}" onclick="toggleElement('${e.id}', ${!e.completada})">
-                ${e.completada ? '<i class="fas fa-check"></i>' : ''}
+    const checklistContainer = document.getElementById('mobile-checklist-items');
+    if (checklistContainer) {
+        checklistContainer.innerHTML = checks.map(e => `
+            <div class="check-item-mobile">
+                <div class="check-box ${e.completada ? 'checked' : ''}" onclick="toggleElement('${e.id}', ${!e.completada})">
+                    ${e.completada ? '<i class="fas fa-check"></i>' : ''}
+                </div>
+                <span class="${e.completada ? 'done' : ''}">${e.contenido}</span>
+                <button class="btn-delete-small" onclick="deleteElement('${e.id}')"><i class="fas fa-times"></i></button>
             </div>
-            <span class="${e.completada ? 'done' : ''}">${e.contenido}</span>
-            <button class="btn-delete-small" onclick="deleteElement('${e.id}')"><i class="fas fa-times"></i></button>
-        </div>
-    `).join('');
-
-    // Lista Numerada - Con soporte visual de orden
-    const numbered = elements.filter(e => e.tipo === 'NUMBERED').sort((a,b) => a.posicion - b.posicion);
-    const orderedListEl = document.getElementById('mobile-ordered-items');
-    orderedListEl.innerHTML = numbered.map((e, idx) => `
-        <div class="check-item-mobile ordered-item-row" data-id="${e.id}" style="cursor: move;">
-            <div class="drag-handle" style="color: #cbd5e1; margin-right: 12px;"><i class="fas fa-grip-vertical"></i></div>
-            <div class="step-num" style="background:var(--primary); color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; margin-right:10px;">${idx + 1}</div>
-            <span style="flex:1;">${e.contenido}</span>
-            <button class="btn-delete-small" onclick="deleteElement('${e.id}')"><i class="fas fa-times"></i></button>
-        </div>
-    `).join('');
-
-    // Inicializar Sortable para la lista numerada
-    if (numbered.length > 0) {
-        // Limpiar cualquier instancia previa para evitar conflictos
-        if (orderedListEl.sortableInstance) orderedListEl.sortableInstance.destroy();
-
-        orderedListEl.sortableInstance = new Sortable(orderedListEl, {
-            animation: 300,
-            handle: '.drag-handle',
-            ghostClass: 'sortable-placeholder',
-            chosenClass: 'sortable-chosen',
-            dragClass: 'sortable-drag',
-            forceFallback: true, // Mejor soporte para scroll en móvil durante arrastre
-            fallbackTolerance: 3, // Evita disparar arrastre por error al tocar
-            onEnd: async () => {
-                const rows = Array.from(orderedListEl.querySelectorAll('.ordered-item-row'));
-                const newOrder = rows.map((row, index) => ({
-                    id: row.dataset.id,
-                    posicion: index + 1
-                }));
-                try {
-                    await Storage.reorderTaskElements(newOrder);
-                    // Actualizar números visuales (step-num)
-                    rows.forEach((row, idx) => {
-                        row.querySelector('.step-num').textContent = idx + 1;
-                    });
-                } catch (e) {
-                    console.error("Error reordenando:", e);
-                    showMobileToast("Error", "No se pudo guardar el orden");
-                    loadTaskElements(true); // Recargar silenciosamente
-                }
-            }
-        });
+        `).join('');
     }
 
-    // Comentarios (Chat)
+    // Lista Numerada
+    const numbered = elements.filter(e => e.tipo === 'NUMBERED').sort((a,b) => a.posicion - b.posicion);
+    const orderedListEl = document.getElementById('mobile-ordered-items');
+    if (orderedListEl) {
+        orderedListEl.innerHTML = numbered.map((e, idx) => `
+            <div class="check-item-mobile ordered-item-row" data-id="${e.id}" style="cursor: move;">
+                <div class="drag-handle" style="color: #cbd5e1; margin-right: 12px;"><i class="fas fa-grip-vertical"></i></div>
+                <div class="step-num" style="background:var(--primary); color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; margin-right:10px;">${idx + 1}</div>
+                <span style="flex:1;">${e.contenido}</span>
+                <button class="btn-delete-small" onclick="deleteElement('${e.id}')"><i class="fas fa-times"></i></button>
+            </div>
+        `).join('');
+        
+        if (numbered.length > 0) {
+            if (orderedListEl.sortableInstance) orderedListEl.sortableInstance.destroy();
+            orderedListEl.sortableInstance = new Sortable(orderedListEl, {
+                animation: 300,
+                handle: '.drag-handle',
+                onEnd: async () => {
+                    const rows = Array.from(orderedListEl.querySelectorAll('.ordered-item-row'));
+                    const newOrder = rows.map((row, index) => ({ id: row.dataset.id, posicion: index + 1 }));
+                    await Storage.reorderTaskElements(newOrder);
+                }
+            });
+        }
+    }
+
+    // Comentarios
     const comments = elements.filter(e => e.tipo === 'COMMENT').sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
     const session = await AuthService.getSession();
-    const commentsList = document.getElementById('mobile-comments-list');
     
     commentsList.innerHTML = comments.map(e => {
-        const isMe = e.usuario_id === session.user.id;
+        const isMe = session && e.usuario_id === session.user.id;
         const authorName = e.usuario_nombre || 'Usuario';
         const authorColor = isMe ? '#059669' : getUserColor(authorName);
-        
         const hasImage = e.archivo_url && (e.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i) || (e.archivo_tipo && e.archivo_tipo.startsWith('image/')));
         const hasAudio = e.archivo_url && (e.archivo_url.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i) || (e.archivo_tipo && e.archivo_tipo.startsWith('audio/')));
         
-        // Bloque de respuesta (WhatsApp Style)
         let replyBlock = '';
         if (e.reply_to_id) {
-            const parent = elements.find(parentE => parentE.id === e.reply_to_id);
+            const parent = elements.find(p => p.id === e.reply_to_id);
             if (parent) {
-                const parentText = parent.contenido ? parent.contenido : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
-                const parentAuthor = parent.usuario_id === session.user.id ? 'Tú' : (parent.usuario_nombre || 'Usuario');
-                replyBlock = `
-                    <div class="m-reply-ref" onclick="event.stopPropagation(); scrollToMobileMessage('${parent.id}')">
-                        <div class="m-reply-author" style="color: ${getUserColor(parentAuthor)}">${parentAuthor}</div>
-                        <div class="m-reply-text">${parentText}</div>
-                    </div>
-                `;
+                const parentText = parent.contenido ? ChatUtils.linkify(parent.contenido) : (parent.archivo_url ? '📎 Archivo' : 'Mensaje original');
+                const parentAuthor = session && parent.usuario_id === session.user.id ? 'Tú' : (parent.usuario_nombre || 'Usuario');
+                replyBlock = `<div class="m-reply-ref" onclick="event.stopPropagation(); scrollToMobileMessage('${parent.id}')"><div class="m-reply-author" style="color: ${getUserColor(parentAuthor)}">${parentAuthor}</div><div class="m-reply-text">${parentText}</div></div>`;
             }
         }
 
-        let contentHtml = `<p>${e.contenido || ''}</p>`;
-        if (hasImage) {
-            contentHtml = `<img src="${e.archivo_url}" class="chat-img-mobile" onclick="event.stopPropagation(); zoomImageMobile('${e.archivo_url}')" />` + contentHtml;
-        } else if (hasAudio) {
-            contentHtml = renderElegantAudioPlayer(e.archivo_url, e.id) + contentHtml;
-        } else if (e.archivo_url) {
-            contentHtml = `<a href="${e.archivo_url}" target="_blank" class="chat-file-link-mobile" onclick="event.stopPropagation();"><i class="fas fa-file-download"></i> Descargar archivo</a>` + contentHtml;
-        }
+        let contentHtml = `<p>${ChatUtils.linkify(e.contenido || '')}</p>`;
+        if (hasImage) contentHtml = `<img src="${e.archivo_url}" class="chat-img-mobile" onclick="event.stopPropagation(); ImageViewer.open('${e.archivo_url}', '${e.id}')" />` + contentHtml;
+        else if (hasAudio) contentHtml = renderElegantAudioPlayer(e.archivo_url, e.id) + contentHtml;
+        else if (e.archivo_url) contentHtml = `<a href="${e.archivo_url}" target="_blank" class="chat-file-link-mobile" onclick="event.stopPropagation();"><i class="fas fa-file-download"></i> Descargar archivo</a>` + contentHtml;
 
         return `
             <div class="m-comment-wrapper ${isMe ? 'me' : 'other'}" id="m-comment-${e.id}">
                 <div class="m-comment-bubble" onclick="handleCommentClick('${e.id}', \`${(e.contenido || '').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`, ${isMe}, '${authorName.replace(/'/g, "\\'")}')">
-                    <div class="m-comment-header">
-                        <span class="m-comment-author" style="color: ${authorColor}">${authorName}</span>
-                        <div class="m-comment-actions">
-                            <i class="fas fa-chevron-down" style="font-size: 0.7rem; opacity: 0.3;"></i>
-                        </div>
-                    </div>
+                    <div class="m-comment-header"><span class="m-comment-author" style="color: ${authorColor}">${authorName}</span></div>
                     ${replyBlock}
-                    <div class="m-comment-body">
-                        ${contentHtml}
-                    </div>
-                    <div class="m-comment-footer">
-                        <span>${new Date(e.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
+                    <div class="m-comment-body">${contentHtml}</div>
+                    <div class="m-comment-footer"><span>${new Date(e.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
                 </div>
-            </div>
-        `;
+            </div>`;
     }).join('');
 
-    // Auto-scroll si hay mensajes nuevos
-    if (newMsgCount > oldMsgCount) {
+    if (checkScroll) {
         commentsList.scrollTop = commentsList.scrollHeight;
     }
 }
@@ -1343,6 +1372,28 @@ function cancelMobileReply() {
     currentMobileReplyId = null;
     document.getElementById('mobile-reply-preview')?.classList.add('hidden');
 }
+
+window.replyToMessageWithEditedImage = async (file, originId) => {
+    try {
+        const path = `daviprojects/task_${currentTaskId}/${Date.now()}_mobile_edited.webp`;
+        const archiveUrl = await Storage.uploadFile(file, path);
+        
+        await Storage.addTaskElement({
+            taskId: currentTaskId,
+            tipo: 'COMMENT',
+            contenido: 'Imagen editada y enviada:',
+            posicion: 0,
+            archivo_url: archiveUrl,
+            archivo_tipo: 'image',
+            reply_to_id: originId
+        });
+        
+        // Refrescar discusión
+        await openTaskDetail(currentTaskId);
+    } catch (err) {
+        console.error("Error al enviar imagen editada en móvil:", err);
+    }
+};
 
 function scrollToMobileMessage(id) {
     const el = document.getElementById(`mobile-comment-${id}`);
@@ -1418,11 +1469,27 @@ async function handleAddElement(type) {
         }
 
         let archivoUrl = null;
+        let attachmentToProcess = currentAttachment;
+
         if (type === 'COMMENT' && currentAttachment) {
             showMobileToast("Subiendo...", "Estamos cargando tu archivo");
-            // Usar la ruta que espera Storage.uploadFile(file, path)
-            const path = `multimedia/${Date.now()}_${currentAttachment.name}`;
-            archivoUrl = await Storage.uploadFile(currentAttachment, path);
+            
+            let fileToUpload = currentAttachment;
+            let finalName = currentAttachment.name;
+
+            // Compresión WebP 80% si es imagen
+            if (currentAttachment.type.startsWith('image/')) {
+                try {
+                    fileToUpload = await ChatUtils.compressToWebP(currentAttachment, 0.8);
+                    finalName = fileToUpload.name;
+                    attachmentToProcess = fileToUpload; // Usar el nuevo archivo para el tipo
+                } catch (e) {
+                    console.error("Error comprimiendo imagen:", e);
+                }
+            }
+
+            const path = `multimedia/${Date.now()}_${finalName}`;
+            archivoUrl = await Storage.uploadFile(fileToUpload, path);
         }
 
         const newEl = await Storage.addTaskElement({
@@ -1430,7 +1497,7 @@ async function handleAddElement(type) {
             tipo: type,
             contenido: val || (currentAttachment ? 'Adjunto' : ''),
             archivo_url: archivoUrl,
-            archivo_tipo: currentAttachment ? currentAttachment.type : null,
+            archivo_tipo: attachmentToProcess ? attachmentToProcess.type : null,
             posicion: Math.floor(Date.now() / 1000),
             reply_to_id: type === 'COMMENT' ? currentMobileReplyId : null
         });
@@ -1447,15 +1514,20 @@ async function handleAddElement(type) {
             logActionType = 'RESPONDER';
         }
         
-        await logMobileAction(logActionType, logDetail, currentTaskId);
+        logMobileAction(logActionType, logDetail, currentTaskId); // No bloquear la UI esperando el log
 
         input.value = '';
         if (type === 'COMMENT') {
+            autoResizeTextarea(input);
             clearMobileAttachment();
             cancelMobileReply();
         }
         
-        loadTaskElements();
+        // Optimización: No recargamos todo de la DB inmediatamente si el Realtime está activo y lo hace
+        // O si lo hacemos, asegurémonos de que el Realtime no cause duplicados visuales temporales.
+        // Pero lo más seguro es dejar que Realtime maneje la inserción y nosotros solo limpiar.
+        // Sin embargo, para seguridad de que se guardó, podemos llamar a loadTaskElements(true)
+        await loadTaskElements(true); 
     } catch (e) {
         console.error(e);
         showMobileToast("Error", "No se pudo guardar", true);
@@ -1993,39 +2065,68 @@ async function initGlobalRealtimeMobile() {
 
     const session = await AuthService.getSession();
     if (session?.access_token) {
-        supabaseClient.realtime.setAuth(session.access_token);
+        if (typeof supabaseClient.realtime.setAuth === 'function') {
+            supabaseClient.realtime.setAuth(session.access_token);
+        }
     }
 
     console.log("Iniciando suscripción Realtime Global (Mobile)...");
 
     taskElementsChannelMobile = supabaseClient
-        .channel('global-task-elements-mobile')
+        .channel('global-task-elements') // Usar el mismo canal que en Desktop
         .on(
             'postgres_changes',
             {
-                event: 'INSERT',
+                event: '*',
                 schema: 'public',
                 table: 'daviprojects_elementos_tarea'
             },
-            (payload) => {
-                console.log('¡Nuevo elemento detectado via Realtime (Mobile)!', payload);
+            async (payload) => {
+                console.log('⚡ Evento Realtime detectado (Mobile):', payload.eventType, payload);
                 const newEl = payload.new;
+                const oldEl = payload.old;
                 
-                // 1. Refresh si estamos viendo la tarea
-                if (currentTaskId === newEl.tarea_id) {
-                    console.log('Refrescando tarea actual (Mobile):', currentTaskId);
-                    loadTaskElements(true);
+                // Supabase Realtime DELETE no envía todos los campos en 'old' a menos que la tabla tenga REPLICA IDENTITY FULL
+                // Por eso, if es DELETE, verificamos si el ID está en nuestra lista actual.
+                const affectedTaskId = newEl ? newEl.tarea_id : (oldEl ? oldEl.tarea_id : null);
+                const isRelevant = (currentTaskId && currentTaskId === affectedTaskId) || 
+                                  (payload.eventType === 'DELETE' && oldEl && currentElements.some(e => e.id === oldEl.id));
+
+                // 1. Actualización Optimista de la UI
+                if (isRelevant) {
+                    if (payload.eventType === 'INSERT') {
+                        const exists = currentElements.some(e => e.id === newEl.id);
+                        if (!exists) {
+                            console.log('📝 Añadiendo nuevo elemento vía Realtime (Mobile)...');
+                            currentElements.push(newEl);
+                            // IMPORTANTE: Ordenar por created_at para mantener consistencia visual
+                            currentElements.sort((a, b) => {
+                                if (a.tipo === 'COMMENT' && b.tipo === 'COMMENT') {
+                                    return new Date(a.created_at) - new Date(b.created_at);
+                                }
+                                return (a.posicion || 0) - (b.posicion || 0);
+                            });
+                            renderTaskElementsMobile(true);
+                        } else {
+                            console.log('⏭️ Elemento ya existe en la lista, saltando render Realtime.');
+                        }
+                    } else if (payload.eventType === 'UPDATE') {
+                        console.log('🔄 Actualizando elemento vía Realtime (Mobile)...');
+                        const index = currentElements.findIndex(e => e.id === newEl.id);
+                        if (index !== -1) {
+                            currentElements[index] = { ...currentElements[index], ...newEl };
+                            renderTaskElementsMobile(false);
+                        }
+                    } else if (payload.eventType === 'DELETE') {
+                        console.log('🗑️ Eliminando elemento vía Realtime (Mobile)...');
+                        currentElements = currentElements.filter(e => e.id !== oldEl.id);
+                        renderTaskElementsMobile(false);
+                    }
                 }
 
-                // 2. Notificar si es de otro usuario
-                console.log('Comparando usuarios (Mobile):', {
-                    recibido: newEl.usuario_id,
-                    actual: currentUserIdMobile,
-                    esPropio: newEl.usuario_id === currentUserIdMobile
-                });
-
-                if (newEl.usuario_id !== currentUserIdMobile) {
-                    console.log('Notificación habilitada (Mobile): Intentando sonido y visuales...');
+                // 2. Notificaciones (Solo si es INSERT y no es nuestro)
+                if (payload.eventType === 'INSERT' && newEl && newEl.usuario_id !== currentUserIdMobile) {
+                    console.log('🔔 Notificación externa recibida!');
                     playNotificationSoundMobile();
 
                     const labels = {
@@ -2037,79 +2138,32 @@ async function initGlobalRealtimeMobile() {
                     const typeLabel = labels[newEl.tipo] || 'nuevo elemento';
                     const userLabel = newEl.usuario_nombre || 'Usuario';
 
-                    showMobileToast(
-                        typeLabel,
-                        userLabel,
-                        newEl.contenido,
-                        newEl.tarea_id,
-                        newEl.tipo
-                    );
-
-                    showPushNotificationMobile(
-                        typeLabel,
-                        userLabel,
-                        newEl.contenido,
-                        newEl.tarea_id,
-                        newEl.tipo
-                    );
-                } else {
-                    console.log('Notificación omitida (Mobile): El cambio fue realizado por el usuario actual.');
+                    showMobileNotificationToast(typeLabel, userLabel, newEl.contenido, newEl.tarea_id, newEl.tipo);
+                    
+                    if (window.NotificationHelper) {
+                        NotificationHelper.showNotification(`🔔 ${userLabel}: ${typeLabel}`, {
+                            body: newEl.contenido || '(Adjunto)',
+                            tag: `task-${newEl.tarea_id}`,
+                            data: { taskId: newEl.tarea_id }
+                        });
+                    }
                 }
             }
         )
-        .subscribe();
+        .subscribe((status) => {
+            console.log("Estado suscripción Realtime Mobile:", status);
+        });
 }
 
 function playNotificationSoundMobile() {
-    console.log('🔈 Intentando reproducir sonido (Mobile)...');
     const audio = document.getElementById('notifSound') || new Audio('https://cdnjs.cloudflare.com/ajax/libs/ion-sound/3.0.7/sounds/button_tiny.mp3');
     if (audio) {
         audio.currentTime = 0;
-        audio.play()
-            .then(() => console.log('✅ Sonido reproducido con éxito (Mobile)'))
-            .catch(e => console.warn("❌ No se pudo reproducir el sonido (Mobile):", e));
+        audio.play().catch(e => console.warn("Audio play blocked", e));
     }
 }
 
-function showPushNotificationMobile(type, user, content, taskId, targetType = null) {
-    console.log('📲 Validando permisos para Push (Mobile)...', Notification.permission);
-    
-    // Omitir si el usuario está en la ventana actualmente
-    if (window.NotificationHelper && !NotificationHelper.shouldShowNotification()) {
-        console.log('🚫 Notificación push omitida: El usuario está en la ventana.');
-        return;
-    }
-
-    if (!("Notification" in window)) return;
-
-    if (Notification.permission === "granted") {
-        try {
-            const title = `🔔 ${user}: ${type}`;
-            const body = content && content.length > 80 ? content.substring(0, 80) + '...' : (content || '(Adjunto)');
-            
-            console.log('🚀 Lanzando Notificación Push (Mobile):', { title, body });
-            const n = new Notification(title, { 
-                body,
-                icon: '/img/logo.webp',
-                badge: '/img/logo.webp',
-                requireInteraction: true 
-            });
-            
-            n.onclick = () => { 
-                window.focus(); 
-                openTaskDetail(taskId, targetType);
-                n.close(); 
-            };
-        } catch (e) {
-            console.error("❌ Error push mobile:", e);
-        }
-    } else {
-        console.warn('⚠️ Permisos de notificación móvil no concedidos:', Notification.permission);
-    }
-}
-
-function showMobileToast(type, user, content, taskId, targetType = null) {
-    console.log('🍞 Mostrando Toast UI (Mobile)...');
+function showMobileNotificationToast(type, user, content, taskId, targetType = null) {
     let container = document.querySelector('.toast-container');
     if (!container) {
         container = document.createElement('div');
@@ -2123,7 +2177,6 @@ function showMobileToast(type, user, content, taskId, targetType = null) {
     let displayContent = content || '';
     if (displayContent.length > 50) displayContent = displayContent.substring(0, 50) + '...';
 
-    // Determinar icono
     let iconClass = 'fa-comment-alt';
     if (type.includes('checklist')) iconClass = 'fa-check-square';
     if (type.includes('lista')) iconClass = 'fa-list-ol';
@@ -2149,8 +2202,6 @@ function showMobileToast(type, user, content, taskId, targetType = null) {
     };
 
     container.appendChild(toast);
-
-    // Auto eliminar
     setTimeout(() => { 
         if (toast.parentElement) {
             toast.style.animation = 'fadeOutToast 0.3s forwards';
@@ -2159,9 +2210,608 @@ function showMobileToast(type, user, content, taskId, targetType = null) {
     }, 6000);
 }
 
-// Register Service Worker
-// Se maneja centralizado en NotificationHelper
-if (window.NotificationHelper && !('serviceWorker' in navigator && navigator.serviceWorker.controller)) {
-    // Registrado en el HTML
+// --- FUNCIONES NUEVA NAVEGACIÓN Y MÚSICA ---
+let mobileMusicData = []; 
+let isReactingMobile = false; // Bloqueo para evitar spam de clics
+
+// Configuración de Caché DreamNotes Music Mobile
+const MUSIC_CACHE_KEY_MOB = 'dreamnotes_music_cache_mobile';
+const MUSIC_CACHE_DAYS_MOB = 7;
+
+function getMusicCacheMobile() {
+    const cached = localStorage.getItem(MUSIC_CACHE_KEY_MOB);
+    if (!cached) return null;
+    try {
+        const parsed = JSON.parse(cached);
+        const days = (Date.now() - parsed.timestamp) / (1000 * 60 * 60 * 24);
+        return days > MUSIC_CACHE_DAYS_MOB ? null : parsed.data;
+    } catch (e) { return null; }
 }
+
+function saveMusicCacheMobile(data) {
+    localStorage.setItem(MUSIC_CACHE_KEY_MOB, JSON.stringify({
+        timestamp: Date.now(),
+        data: data
+    }));
+}
+
+function showMusicLoadingMobile() {
+    const loader = document.getElementById('music-loader-container');
+    if (loader) loader.classList.remove('hidden');
+}
+
+function hideMusicLoadingMobile() {
+    const loader = document.getElementById('music-loader-container');
+    if (loader) loader.classList.add('hidden');
+}
+
+function getStarColor(percentage) {
+    if (percentage === 0) return '#cbd5e1'; // Gris si no hay votos
+    if (percentage < 40) return '#ef4444';  // Rojo
+    if (percentage < 75) return '#f97316';  // Naranja
+    return '#facc15';                       // Amarillo medio
+}
+
+function openMobileMoreMenu() {
+    openMobileSheet('mobile-more-menu');
+}
+
+function goToMenuOption(viewId) {
+    closeMobileSheet('mobile-more-menu');
+    switchView(viewId);
+}
+
+// Inicializar clics de música
+if(document.getElementById('nav-btn-music')) {
+    document.getElementById('nav-btn-music').onclick = () => switchView('mobile-music-view');
+}
+if(document.getElementById('btn-upload-music-mobile')) {
+    document.getElementById('btn-upload-music-mobile').onclick = () => openMobileSheet('mobile-modal-music');
+}
+
+async function renderMusicListMobile(skipFetch = false) {
+    const list = document.getElementById('mobile-music-list');
+    if (!list) return;
+
+    // 1. Carga desde Caché (Instantánea - Vista Cached)
+    const cachedData = getMusicCacheMobile();
+    if (cachedData && !skipFetch && mobileMusicData.length === 0) {
+        mobileMusicData = cachedData;
+        console.log("Cargando música móvil desde caché...");
+        _doRenderMusicMobile();
+        
+        // Sincronizar en segundo plano sin bloquear
+        setTimeout(async () => {
+            try {
+                const freshData = await Storage.getMusic();
+                saveMusicCacheMobile(freshData);
+                if (JSON.stringify(freshData) !== JSON.stringify(mobileMusicData)) {
+                    mobileMusicData = freshData;
+                    _doRenderMusicMobile();
+                }
+            } catch (e) { console.error("Error background sync (Mobile):", e); }
+        }, 300);
+        return;
+    }
+
+    // 2. Si no hay caché o es refresh forzado, mostrar Screenlocker
+    if (!skipFetch) showMusicLoadingMobile();
+
+    try {
+        if (!skipFetch) {
+            mobileMusicData = await Storage.getMusic();
+            saveMusicCacheMobile(mobileMusicData);
+        }
+        _doRenderMusicMobile();
+    } catch (e) {
+        list.innerHTML = `<p style="padding: 2rem; text-align: center; color: #ef4444;">No se pudo conectar con el Studio.</p>`;
+    } finally {
+        if (!skipFetch) hideMusicLoadingMobile();
+    }
+}
+
+function _doRenderMusicMobile() {
+    const list = document.getElementById('mobile-music-list');
+    if (!list) return;
+
+    if (!mobileMusicData || mobileMusicData.length === 0) {
+        list.innerHTML = `<p style="padding: 2rem; text-align: center; color: #94a3b8;">No hay música.</p>`;
+        return;
+    }
+
+    list.innerHTML = '';
+    mobileMusicData.forEach(song => {
+        const totalRec = (song.likes_total || 0) + (song.dislikes_total || 0);
+        const percentage = totalRec > 0 ? Math.round((song.likes_total || 0) / totalRec * 100) : 0;
+        const starColor = getStarColor(percentage);
+
+            const card = document.createElement('div');
+            card.className = 'music-card-mobile';
+            card.id = `music-card-${song.id}`;
+            card.innerHTML = `
+                <div class="music-card-header">
+                    <div class="music-card-titles">
+                        <h4>${song.nombre}</h4>
+                        <p>${song.descripcion_corta || 'Sin descripción'}</p>
+                    </div>
+                    <div class="music-star-badge" style="background: ${starColor}15; color: ${starColor}; border: 1px solid ${starColor}30;">
+                        <i class="fas fa-star"></i> <span>${percentage}%</span>
+                    </div>
+                </div>
+                <div class="music-card-footer">
+                    <button class="btn-primary-play" onclick="handlePlayClickMobile('${song.id}')">
+                        <i class="fas fa-play"></i> Reproducir sesión
+                    </button>
+                </div>`;
+            list.appendChild(card);
+        });
+}
+
+function handlePlayClickMobile(songId) {
+    const song = mobileMusicData.find(s => s.id === songId);
+    if (song) playSongMobile(song);
+}
+
+async function handleMusicReaction(event, musicId, type) {
+    if (isReactingMobile) return;
+    
+    const idToReact = musicId || (window.currentPlayingSong ? window.currentPlayingSong.id : null);
+    if (!idToReact) return;
+
+    isReactingMobile = true;
+    
+    const targetSong = mobileMusicData.find(s => s.id === idToReact);
+    if (!targetSong) { isReactingMobile = false; return; }
+
+    const clickBtn = event ? event.currentTarget : null;
+    if (clickBtn) {
+        clickBtn.style.transform = "scale(0.85)";
+        clickBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        clickBtn.disabled = true;
+    }
+
+    const backup = {
+        likes: targetSong.likes_total || 0,
+        dislikes: targetSong.dislikes_total || 0,
+        uLike: targetSong.user_likes_count || 0,
+        uDislike: targetSong.user_dislikes_count || 0
+    };
+
+    const isLike = type === 'like';
+    
+    // Lógica Optimista
+    if (isLike) {
+        if (backup.uLike > 0) { // Quitar like
+            targetSong.user_likes_count = 0;
+            targetSong.likes_total = Math.max(0, backup.likes - 1);
+        } else { // Poner like
+            targetSong.user_likes_count = 1;
+            targetSong.likes_total = backup.likes + 1;
+            if (backup.uDislike > 0) { // Quitar dislike
+                targetSong.user_dislikes_count = 0;
+                targetSong.dislikes_total = Math.max(0, backup.dislikes - 1);
+            }
+        }
+    } else {
+        if (backup.uDislike > 0) { // Quitar dislike
+            targetSong.user_dislikes_count = 0;
+            targetSong.dislikes_total = Math.max(0, backup.dislikes - 1);
+        } else { // Poner dislike
+            targetSong.user_dislikes_count = 1;
+            targetSong.dislikes_total = backup.dislikes + 1;
+            if (backup.uLike > 0) { // Quitar like
+                targetSong.user_likes_count = 0;
+                targetSong.likes_total = Math.max(0, backup.likes - 1);
+            }
+        }
+    }
+
+    updateMusicCardUI(idToReact, targetSong);
+
+    try {
+        const result = await Storage.toggleMusicReaction(idToReact, type);
+        if (result && result.success) {
+            targetSong.likes_total = result.likes_total;
+            targetSong.dislikes_total = result.dislikes_total;
+            
+            // Sincronización absoluta con el objeto del reproductor si es el mismo tema
+            if (window.currentPlayingSong && window.currentPlayingSong.id === idToReact) {
+                window.currentPlayingSong.likes_total = targetSong.likes_total;
+                window.currentPlayingSong.dislikes_total = targetSong.dislikes_total;
+            }
+
+            if (type === 'like') {
+                if (backup.uLike > 0) {
+                    targetSong.user_likes_count = 0;
+                } else {
+                    targetSong.user_likes_count = 1;
+                    targetSong.user_dislikes_count = 0;
+                }
+            } else {
+                if (backup.uDislike > 0) {
+                    targetSong.user_dislikes_count = 0;
+                } else {
+                    targetSong.user_dislikes_count = 1;
+                    targetSong.user_likes_count = 0;
+                }
+            }
+
+            // Sync user counts too
+            if (window.currentPlayingSong && window.currentPlayingSong.id === idToReact) {
+                window.currentPlayingSong.user_likes_count = targetSong.user_likes_count;
+                window.currentPlayingSong.user_dislikes_count = targetSong.user_dislikes_count;
+            }
+        }
+        updateMusicCardUI(idToReact, targetSong);
+    } catch (e) {
+        console.error("Error en reacción:", e);
+        targetSong.likes_total = backup.likes;
+        targetSong.dislikes_total = backup.dislikes;
+        targetSong.user_likes_count = backup.uLike;
+        targetSong.user_dislikes_count = backup.uDislike;
+        updateMusicCardUI(idToReact, targetSong);
+    } finally {
+        isReactingMobile = false;
+
+        // Breve espera para asegurar sincronía entre DB y renderizado del DOM
+        setTimeout(() => {
+            if (clickBtn) {
+                clickBtn.style.transform = "scale(1)";
+                clickBtn.disabled = false;
+                
+                // Reconstruir counts para asegurar que los IDs del toast existan si se acaba de inyectar HTML
+                if (type === 'like') {
+                    clickBtn.innerHTML = `<i class="fas fa-heart"></i> <span id="toast-like-count">${targetSong.likes_total || 0}</span>`;
+                } else {
+                    clickBtn.innerHTML = `<i class="fas fa-heart-broken"></i> <span id="toast-dislike-count">${targetSong.dislikes_total || 0}</span>`;
+                }
+            }
+            updateMusicCardUI(idToReact, targetSong);
+        }, 50);
+    }
+}
+
+function updateMusicCardUI(musicId, song) {
+    // Actualizar UI del reproductor Toast si es la canción actual
+    if (window.currentPlayingSong && window.currentPlayingSong.id === musicId) {
+        const btnLikeToast = document.getElementById('btn-toast-like');
+        const btnDislikeToast = document.getElementById('btn-toast-dislike');
+        const countLikeToast = document.getElementById('toast-like-count');
+        const countDislikeToast = document.getElementById('toast-dislike-count');
+        
+        if (btnLikeToast) {
+            btnLikeToast.className = `btn-toast-reaction ${song.user_likes_count > 0 ? 'active-like' : ''}`;
+        }
+        if (countLikeToast) {
+            countLikeToast.textContent = song.likes_total || 0;
+        }
+        if (btnDislikeToast) {
+            btnDislikeToast.className = `btn-toast-reaction ${song.user_dislikes_count > 0 ? 'active-dislike' : ''}`;
+        }
+        if (countDislikeToast) {
+            countDislikeToast.textContent = song.dislikes_total || 0;
+        }
+    }
+
+    const card = document.getElementById(`music-card-${musicId}`);
+    if (!card) return;
+
+    // Estrellas
+    const total = (song.likes_total || 0) + (song.dislikes_total || 0);
+    const pct = total > 0 ? Math.round((song.likes_total || 0) / total * 100) : 0;
+    const color = getStarColor(pct);
+    let badge = card.querySelector('.music-star-badge');
+
+    if (badge) {
+        badge.style.background = `${color}15`;
+        badge.style.color = color;
+        badge.style.border = `1px solid ${color}30`;
+        badge.innerHTML = `<i class="fas fa-star"></i> <span>${pct}%</span>`;
+    }
+}
+
+
+function copyMusicUrl(url) {
+    navigator.clipboard.writeText(url).then(() => {
+        alert("Enlace copiado al portapapeles");
+    });
+}
+
+// Lógica de subida música mobile
+const musicFileInput = document.getElementById('music-file-mobile');
+if (musicFileInput) {
+    musicFileInput.onchange = (e) => {
+        const dropZone = document.getElementById('music-drop-zone-mobile');
+        const statusText = document.getElementById('music-file-status-mobile');
+        if (e.target.files && e.target.files[0]) {
+            const fileName = e.target.files[0].name;
+            statusText.innerHTML = `<strong>Seleccionado:</strong><br>${fileName}`;
+            dropZone.classList.add('active');
+        } else {
+            statusText.innerText = 'Toca para seleccionar archivo MP3';
+            dropZone.classList.remove('active');
+        }
+    };
+}
+
+if (document.getElementById('btn-save-music-mobile')) {
+    document.getElementById('btn-save-music-mobile').onclick = async () => {
+        const btn = document.getElementById('btn-save-music-mobile');
+        const name = document.getElementById('music-name-mobile').value;
+        const desc = document.getElementById('music-desc-mobile').value;
+        const projId = document.getElementById('music-project-select-mobile').value;
+        const fileInput = document.getElementById('music-file-mobile');
+        const lyrics = document.getElementById('music-lyrics-mobile').value;
+
+        if (!name || !fileInput.files[0]) {
+            alert("Nombre y archivo son obligatorios");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Subiendo material...';
+
+        try {
+            const file = fileInput.files[0];
+            const fileName = `${Date.now()}_${file.name}`;
+            const path = `daviprojects/musicas/${fileName}`;
+            
+            const publicUrl = await Storage.uploadFile(file, path);
+            
+            await Storage.addMusic({
+                nombre: name,
+                descripcion_corta: desc,
+                proyecto_id: projId || null,
+                url_archivo: publicUrl,
+                letra: lyrics
+            });
+
+            closeMobileSheet('mobile-modal-music');
+            renderMusicListMobile();
+            
+            // Limpiar campos
+            document.getElementById('music-name-mobile').value = '';
+            document.getElementById('music-desc-mobile').value = '';
+            document.getElementById('music-lyrics-mobile').value = '';
+            fileInput.value = '';
+            document.getElementById('music-file-status-mobile').innerText = 'Toca para seleccionar archivo MP3';
+            document.getElementById('music-drop-zone-mobile').classList.remove('active');
+
+        } catch (error) {
+            console.error(error);
+            alert("Error al subir música");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check-circle"></i> Guardar en la Nube';
+        }
+    };
+}
+
+// Cargar proyectos en el select de música
+async function loadMusicProjectsMobile() {
+    const select = document.getElementById('music-project-select-mobile');
+    if (!select) return;
+    
+    try {
+        const projects = await Storage.getProjects();
+        select.innerHTML = '<option value="">Sin vincular a proyecto</option>';
+        projects.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.nombre;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error("Error cargando proyectos para música:", e);
+    }
+}
+loadMusicProjectsMobile();
+
+// --- LÓGICA DE REPRODUCTOR DREAMNOTES MUSIC (TOAST & PERSISTENCIA) ---
+const audio = document.getElementById('globalMusicAudio');
+const toastPlayer = document.getElementById('music-toast-player');
+const floatingBtn = document.getElementById('music-floating-play');
+const playPauseBtn = document.getElementById('btn-toast-play-pause');
+const songNameEl = document.getElementById('toast-song-name');
+const songStatusEl = document.getElementById('toast-song-status');
+const seekSlider = document.getElementById('music-seek-slider');
+const progressFill = document.getElementById('toast-progress-fill');
+const volumeBtn = document.getElementById('btn-toast-volume');
+const volumeSlider = document.getElementById('music-volume-slider');
+const volumePopover = document.getElementById('toast-volume-popover');
+const toastLikeBtn = document.getElementById('btn-toast-like');
+const toastDislikeBtn = document.getElementById('btn-toast-dislike');
+
+// Lógica de Expansión/Contracción (Lite Mode)
+function expandToastPlayer() {
+    if (toastPlayer.classList.contains('is-lite')) {
+        toastPlayer.classList.remove('is-lite');
+    }
+}
+
+function shrinkToastPlayer() {
+    if (!toastPlayer.classList.contains('hidden') && !toastPlayer.classList.contains('is-lite')) {
+        toastPlayer.classList.add('is-lite');
+    }
+}
+
+// Click en el toast para expandir
+toastPlayer.addEventListener('click', (e) => {
+    // Si se hace click en el botón de play/pause o volumen no expandir
+    const isControl = e.target.closest('#btn-toast-play-pause') || 
+                      e.target.closest('.volume-control-group') ||
+                      e.target.closest('.toast-reactions-player');
+    
+    if (isControl) return; 
+
+    if (toastPlayer.classList.contains('is-lite')) {
+        expandToastPlayer();
+        e.stopPropagation(); 
+    }
+});
+
+// Detectar scroll para contraer (usamos window para mayor cobertura en mobile)
+window.addEventListener('scroll', () => {
+    if (currentViewId === 'mobile-music-view') {
+        shrinkToastPlayer();
+    }
+}, { passive: true });
+
+// Detectar clicks fuera para contraer
+document.addEventListener('click', (e) => {
+    const isMusicView = (currentViewId === 'mobile-music-view');
+    if (!isMusicView) return;
+
+    const clickedInsidePlayer = toastPlayer.contains(e.target);
+    const clickedPlayButton = e.target.closest('.btn-primary-play');
+
+    // Si clicamos fuera del player y no es el botón de "reproducir" de una card -> contraer
+    if (!clickedInsidePlayer && !clickedPlayButton) {
+        shrinkToastPlayer();
+    }
+});
+
+// Cargar volumen guardado
+const savedVolume = localStorage.getItem('daviMusicVolume');
+if (savedVolume !== null) {
+    audio.volume = parseFloat(savedVolume);
+    volumeSlider.value = audio.volume;
+}
+
+function playSongMobile(song) {
+    if (!song) return;
+    
+    if (audio.src !== song.url_archivo) {
+        audio.src = song.url_archivo;
+    }
+    
+    window.currentPlayingSong = song;
+    songNameEl.textContent = song.nombre;
+    songStatusEl.textContent = "Reproduciendo ahora";
+    
+    // Actualizar botones y contadores de reacción en el toast
+    if (toastLikeBtn) {
+        toastLikeBtn.className = `btn-toast-reaction ${song.user_likes_count > 0 ? 'active-like' : ''}`;
+        document.getElementById('toast-like-count').textContent = song.likes_total || 0;
+        toastLikeBtn.onclick = (e) => handleMusicReaction(e, song.id, 'like');
+    }
+    if (toastDislikeBtn) {
+        toastDislikeBtn.className = `btn-toast-reaction ${song.user_dislikes_count > 0 ? 'active-dislike' : ''}`;
+        document.getElementById('toast-dislike-count').textContent = song.dislikes_total || 0;
+        toastDislikeBtn.onclick = (e) => handleMusicReaction(e, song.id, 'dislike');
+    }
+
+    audio.play().catch(e => console.error("Error al reproducir:", e));
+    
+    // Mostrar Toast Player Expandido al inicio
+    toastPlayer.classList.remove('hidden');
+    toastPlayer.classList.remove('is-lite'); 
+    
+    // Si no estamos en la vista de música, ocultamos el toast y mostramos el flotante
+    updatePlayerVisibility();
+}
+
+
+function togglePlayPause() {
+    if (audio.paused) {
+        audio.play();
+    } else {
+        audio.pause();
+    }
+}
+
+playPauseBtn.onclick = togglePlayPause;
+floatingBtn.onclick = togglePlayPause;
+
+// Control de Volumen
+volumeBtn.onclick = (e) => {
+    e.stopPropagation();
+    volumePopover.classList.toggle('hidden');
+};
+
+volumeSlider.oninput = (e) => {
+    const vol = parseFloat(e.target.value);
+    audio.volume = vol;
+    localStorage.setItem('daviMusicVolume', vol);
+    
+    // Actualizar icono
+    const icon = volumeBtn.querySelector('i');
+    if (vol === 0) icon.className = 'fas fa-volume-mute';
+    else if (vol < 0.5) icon.className = 'fas fa-volume-down';
+    else icon.className = 'fas fa-volume-up';
+};
+
+// Cerrar popover de volumen al tocar fuera
+document.addEventListener('click', (e) => {
+    if (volumePopover && !volumePopover.contains(e.target) && e.target !== volumeBtn) {
+        volumePopover.classList.add('hidden');
+    }
+});
+
+// Seek Bar logic
+seekSlider.oninput = () => {
+    const seekTo = audio.duration * (seekSlider.value / 100);
+    audio.currentTime = seekTo;
+};
+
+audio.ontimeupdate = () => {
+    if (!audio.duration) return;
+    const progress = (audio.currentTime / audio.duration) * 100;
+    seekSlider.value = progress;
+    progressFill.style.width = `${progress}%`;
+};
+
+audio.onplay = () => {
+    playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    floatingBtn.innerHTML = '<div class="pulse-ring"></div><i class="fas fa-pause"></i>';
+    songStatusEl.textContent = "En curso";
+};
+
+audio.onpause = () => {
+    playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+    floatingBtn.innerHTML = '<i class="fas fa-play"></i>';
+    songStatusEl.textContent = "En pausa";
+};
+
+audio.onended = () => {
+    playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+    floatingBtn.innerHTML = '<i class="fas fa-play"></i>';
+    songStatusEl.textContent = "Finalizado";
+};
+
+// Lógica de visibilidad persistente
+function updatePlayerVisibility() {
+    if (!audio || !toastPlayer || !floatingBtn) return;
+    
+    const isMusicView = (currentViewId === 'mobile-music-view');
+    const hasAudio = audio.src && audio.src.length > 5 && !audio.src.endsWith(window.location.pathname) && window.currentPlayingSong;
+
+    if (!hasAudio) {
+        toastPlayer.classList.add('hidden');
+        floatingBtn.classList.add('hidden');
+        return;
+    }
+
+    if (isMusicView) {
+        toastPlayer.classList.remove('hidden');
+        floatingBtn.classList.add('hidden');
+    } else {
+        toastPlayer.classList.add('hidden');
+        
+        // REGLA: Si salimos de música y NO está sonando, no mostramos el flotante.
+        // Pero si ya estaba visible el flotante (porque estaba sonando), se mantiene aunque pausemos.
+        const isAlreadyVisible = !floatingBtn.classList.contains('hidden');
+        const isPlaying = !audio.paused;
+
+        if (isPlaying || isAlreadyVisible) {
+            floatingBtn.classList.remove('hidden');
+        } else {
+            floatingBtn.classList.add('hidden');
+        }
+    }
+}
+
+// Si switchView no es global, lo buscamos en el script
+// He visto que se usa en event listeners al principio del archivo.
+// Vamos a buscar la definición de switchView.
 

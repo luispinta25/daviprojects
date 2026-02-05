@@ -36,9 +36,16 @@ const AuthService = {
         return data;
     },
 
-    async logout() {
+    async logout(isExpired = false) {
         await supabaseClient.auth.signOut();
-        window.location.href = '/';
+        const suffix = isExpired ? '?expired=1' : '';
+        // Detectar si estamos en móvil o desktop para redirigir correctamente al login
+        const path = window.location.pathname;
+        if (path.includes('/mobile/')) {
+            window.location.href = '/src/mobile/auth/login.html' + suffix;
+        } else {
+            window.location.href = '/src/desktop/auth/login.html' + suffix;
+        }
     },
 
     async getSession() {

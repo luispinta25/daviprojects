@@ -91,39 +91,74 @@
         }
     </style>
     <script>
+        const REDIRECT_THRESHOLD = 768;
+
+        function getDeviceType() {
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+                             || window.innerWidth <= REDIRECT_THRESHOLD;
+            return isMobile ? 'mobile' : 'desktop';
+        }
+
         function checkDevice() {
             const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
-                             || window.matchMedia("(max-width: 768px)").matches;
             const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
             const search = window.location.search;
+            const deviceType = getDeviceType();
             
             // Si es iPhone y no es standalone, avisamos al mobile/index para mostrar el banner de instalación
             const extra = (isIOS && !isStandalone) ? (search ? '&safari=1' : '?safari=1') : '';
 
-            // Pequeño retardo para que el splash sea visible y la transición no sea brusca
+            // Pequeño retardo para que el splash sea visible
             setTimeout(() => {
-                if (isMobile) {
-                    window.location.replace("/src/mobile/index.html" + search + extra);
+                if (deviceType === 'mobile') {
+                    window.location.replace("/src/mobile/index.html" + window.location.search + extra);
                 } else {
-                    window.location.replace("/src/desktop/index.html" + search);
+                    window.location.replace("/src/desktop/index.html" + window.location.search);
                 }
             }, 700);
         }
+        
+        // Ejecutar al cargar
         checkDevice();
 
-        // Register Service Worker
+        // Detectar cambios de tamaño de pantalla en el splash (poco probable pero útil)
+        window.addEventListener('resize', () => {
+             // Si el usuario cambia drásticamente el tamaño durante el splash, recalculamos
+             // Sin embargo, como el timeout es corto, lo dejamos así por ahora.
+        });
+
+        // Register Service Worker with enhanced update logic
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
                     .then(reg => {
                         console.log('SW OK');
-                        // Si hay una actualización esperando, la forzamos o el usuario lo verá al entrar a la app
+
+                        // Detectar actualizaciones en segundo plano
+                        reg.addEventListener('updatefound', () => {
+                            const newWorker = reg.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // Forzar actualización inmediata enviando el mensaje
+                                    newWorker.postMessage('SKIP_WAITING');
+                                }
+                            });
+                        });
+
                         if (reg.waiting) {
                             reg.waiting.postMessage('SKIP_WAITING');
                         }
                     })
                     .catch(err => console.error('SW Error', err));
+
+                // Recargar automáticamente cuando el nuevo SW tome el control
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (!refreshing) {
+                        refreshing = true;
+                        window.location.reload();
+                    }
+                });
             });
         }
     </script>
