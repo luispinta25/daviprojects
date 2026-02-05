@@ -500,6 +500,8 @@ async function initMobile() {
             if (targetView) {
                 switchView(targetView);
                 if (targetView === 'mobile-ideas-view') loadMobileIdeas();
+            } else if (item.id === 'nav-btn-more') {
+                openMobileMoreMenu();
             }
         };
     });
@@ -865,14 +867,18 @@ function switchView(viewId) {
     if (btnAddMain) {
         if (viewId === 'mobile-tasks-view') {
             btnAddMain.classList.add('task-mode');
-            btnAddMain.classList.remove('idea-mode');
+            btnAddMain.classList.remove('idea-mode', 'music-mode');
             if (btnAddIcon) btnAddIcon.className = 'fas fa-plus';
         } else if (viewId === 'mobile-gallery-view') {
-            btnAddMain.classList.remove('task-mode');
+            btnAddMain.classList.remove('task-mode', 'music-mode');
             btnAddMain.classList.add('idea-mode');
             if (btnAddIcon) btnAddIcon.className = 'fas fa-lightbulb';
-        } else {
+        } else if (viewId === 'mobile-music-view') {
             btnAddMain.classList.remove('task-mode', 'idea-mode');
+            btnAddMain.classList.add('music-mode');
+            if (btnAddIcon) btnAddIcon.className = 'fas fa-music';
+        } else {
+            btnAddMain.classList.remove('task-mode', 'idea-mode', 'music-mode');
             if (btnAddIcon) btnAddIcon.className = 'fas fa-plus';
         }
 
@@ -887,6 +893,8 @@ function switchView(viewId) {
                 switchView('mobile-ideas-view');
             } else if (viewId === 'mobile-all-projects-view') {
                 openMobileSheet('mobile-modal-project');
+            } else if (viewId === 'mobile-music-view') {
+                openMobileSheet('mobile-modal-music');
             } else {
                 openMobileSheet('mobile-modal-actions');
             }
@@ -2267,6 +2275,9 @@ if(document.getElementById('nav-btn-music')) {
 }
 if(document.getElementById('btn-upload-music-mobile')) {
     document.getElementById('btn-upload-music-mobile').onclick = () => openMobileSheet('mobile-modal-music');
+}
+if(document.getElementById('btn-cancel-music-mobile')) {
+    document.getElementById('btn-cancel-music-mobile').onclick = () => closeMobileSheet('mobile-modal-music');
 }
 
 async function renderMusicListMobile(skipFetch = false) {

@@ -307,7 +307,9 @@
             <section id="mobile-music-view" class="view hidden">
                 <div class="view-header-fixed">
                     <h3>DreamNotes Music</h3>
-                    <button class="btn-icon" id="btn-upload-music-mobile"><i class="fas fa-plus"></i></button>
+                    <div class="view-header-actions">
+                        <button class="btn-icon circle" onclick="openMobileSheet('mobile-modal-music')"><i class="fas fa-plus"></i></button>
+                    </div>
                 </div>
 
                 <div id="music-loader-container" class="ideas-loader hidden">
@@ -447,7 +449,7 @@
                 <i class="fas fa-music"></i>
                 <span>Música</span>
             </button>
-            <button class="nav-item" id="nav-btn-more" onclick="openMobileMoreMenu()">
+            <button class="nav-item" id="nav-btn-more">
                 <i class="fas fa-bars"></i>
                 <span>Más</span>
             </button>
@@ -857,25 +859,18 @@
         </div>
     </div>
 
-    <!-- Modal "Más" (Ideas e Historial) -->
-    <div id="mobile-more-menu" class="mobile-bottom-sheet hidden" style="background: rgba(0,0,0,0.6); z-index: 3500;">
-        <div class="sheet-content" style="height: auto; padding-bottom: 2rem;">
-            <div class="sheet-handle"></div>
-            <div class="sheet-header">
-                <h3>Opciones</h3>
-                <button class="btn-icon circle" onclick="closeMobileSheet('mobile-more-menu')"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="sheet-body">
-                <div class="action-grid">
-                    <button class="action-card" onclick="goToMenuOption('mobile-ideas-view')">
-                        <div class="act-icon yellow" style="background: #fbbf24;"><i class="fas fa-lightbulb"></i></div>
-                        <span>Ideas</span>
-                    </button>
-                    <button class="action-card" onclick="goToMenuOption('mobile-history-view')">
-                        <div class="act-icon gray" style="background: #64748b;"><i class="fas fa-history"></i></div>
-                        <span>Historial</span>
-                    </button>
-                </div>
+    <div id="mobile-more-menu" class="mobile-bottom-sheet sheet-floating-up hidden" style="z-index: 4000;">
+        <div class="sheet-background-overlay" onclick="closeMobileSheet('mobile-more-menu')" style="position: absolute; inset: 0; background: rgba(7, 26, 64, 0.1); backdrop-filter: blur(2px);"></div>
+        <div class="sheet-content" style="z-index: 4001;">
+            <div class="floating-menu-list">
+                <button class="floating-menu-item ideas" onclick="goToMenuOption('mobile-ideas-view')">
+                    <i class="fas fa-lightbulb"></i>
+                    <span>Ideas</span>
+                </button>
+                <button class="floating-menu-item history" onclick="goToMenuOption('mobile-history-view')">
+                    <i class="fas fa-history"></i>
+                    <span>Registros</span>
+                </button>
             </div>
         </div>
     </div>
@@ -917,9 +912,10 @@
                     <textarea id="music-lyrics-mobile" class="input-modern" style="height: 100px; resize: none;" placeholder="Escribe aquí..."></textarea>
                 </div>
             </div>
-            <div class="sheet-footer" style="padding: 1.5rem;">
-                <button class="btn-confirm-full" id="btn-save-music-mobile" style="height: 56px; font-size: 1.1rem; border-radius: 16px; background: #082359;">
-                    <i class="fas fa-check-circle" style="margin-right: 8px;"></i> Guardar en la Nube
+            <div class="sheet-footer" style="padding: 1.5rem; display: flex; gap: 1rem;">
+                <button class="btn-cancel-modern" id="btn-cancel-music-mobile" style="flex: 0.4; height: 56px; border-radius: 16px; border: 1px solid #e2e8f0; background: white; color: #64748b; font-weight: 600;">Descartar</button>
+                <button class="btn-confirm-full" id="btn-save-music-mobile" style="flex: 1; height: 56px; font-size: 1.1rem; border-radius: 16px; background: #082359;">
+                    <i class="fas fa-check-circle" style="margin-right: 8px;"></i> Guardar
                 </button>
             </div>
         </div>

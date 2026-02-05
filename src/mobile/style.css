@@ -207,10 +207,39 @@ main {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
+    margin: -1rem -1rem 1.5rem -1rem !important; /* Pegado total a bordes */
+    padding: 1.25rem 1.5rem !important;
+    background: white;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    border-bottom: 1px solid #f1f5f9;
 }
 
-.view-header-fixed h3 { font-size: 1.2rem; font-weight: 800; }
+.view-header-fixed h3 { 
+    font-size: 1.3rem !important; 
+    font-weight: 800 !important; 
+    color: #082359 !important; 
+    margin: 0 !important;
+}
+
+.view-header-actions .btn-icon.circle {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: #f1f5f9;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    transition: all 0.2s;
+}
+
+.view-header-actions .btn-icon.circle:active {
+    transform: scale(0.9);
+    background: #e2e8f0;
+}
 
 /* Project Gallery Cards */
 .mobile-project-gallery {
@@ -603,6 +632,86 @@ main {
 .mobile-bottom-sheet.active .sheet-content {
     transform: translateY(0);
 }
+
+/* MENÚ FLOTANTE SUPERIOR (USADO EN MÁS) */
+.sheet-floating-up {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    z-index: 5000 !important;
+}
+
+.sheet-floating-up .sheet-content {
+    width: 200px !important;
+    height: auto !important;
+    position: absolute !important;
+    bottom: 95px !important;
+    right: 15px !important;
+    border-radius: 28px !important;
+    padding: 0.75rem !important;
+    background: white !important;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.2) !important;
+    transform: translateY(20px) scale(0.9);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border: 1px solid rgba(0,0,0,0.05) !important;
+}
+
+.sheet-floating-up.active .sheet-content {
+    transform: translateY(0) scale(1) !important;
+    opacity: 1 !important;
+}
+
+.sheet-floating-up.active .sheet-background-overlay {
+    opacity: 1;
+}
+
+.sheet-background-overlay {
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.sheet-floating-up .sheet-handle, 
+.sheet-floating-up .sheet-header {
+    display: none !important;
+}
+
+.floating-menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.floating-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    font-weight: 700;
+    color: #334155;
+    background: transparent;
+    border: none;
+    width: 100%;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+}
+
+.floating-menu-item:active {
+    background: #f8fafc;
+    transform: scale(0.96);
+}
+
+.floating-menu-item i {
+    font-size: 1.1rem;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+}
+
+.floating-menu-item.ideas i { background: #fffbeb; color: #d97706; }
+.floating-menu-item.history i { background: #f1f5f9; color: #475569; }
 
 .sheet-handle {
     width: 40px;
@@ -2521,9 +2630,8 @@ main {
 }
 
 .volume-popover input {
-    writing-mode: bt-lr; /* Vertical slider */
-    -webkit-appearance: slider-vertical;
-    appearance: slider-vertical;
+    writing-mode: vertical-lr;
+    direction: rtl;
     width: 20px;
     height: 80px;
 }
@@ -2567,6 +2675,16 @@ main {
     gap: 1.5rem; /* Separación generosa entre tarjetas */
     padding: 1rem;
     padding-bottom: 100px; /* Espacio para el reproductor inferior */
+}
+
+/* Botón contextual Música */
+.nav-item-add.music-mode {
+    background: linear-gradient(135deg, #a855f7 0%, #d946ef 100%) !important;
+    box-shadow: 0 4px 15px rgba(217, 70, 239, 0.4);
+}
+
+.nav-item-add.music-mode i {
+    color: white !important;
 }
 
 /* NUEVA CARD DE MUSICA (RATING ARRIBA, TITULO Y DESC) */

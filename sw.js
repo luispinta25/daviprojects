@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daviprojects-v36'; // Corrección de error de sintaxis en carga de música
+const CACHE_NAME = 'daviprojects-v37'; // Mejoras en botón de carga música y modal móvil
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
