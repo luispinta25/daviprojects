@@ -95,6 +95,22 @@
         if (window.NotificationHelper) {
             NotificationHelper.registerServiceWorker();
         }
+
+        // Obligatoriedad de versión v40 (Bypass splash)
+        const APP_VERSION = '40.0.0';
+        const savedVersion = localStorage.getItem('app_version');
+        if (savedVersion && savedVersion !== APP_VERSION) {
+            console.log('Versión antigua detectada en móvil. Forzando actualización...');
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    for (let name of names) caches.delete(name);
+                });
+            }
+            localStorage.setItem('app_version', APP_VERSION);
+            window.location.reload();
+        } else if (!savedVersion) {
+            localStorage.setItem('app_version', APP_VERSION);
+        }
     </script>
     <style>
         /* Modal de Alerta Móvil */

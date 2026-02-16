@@ -115,24 +115,34 @@ const NotificationHelper = {
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', async () => {
                 try {
-                    const reg = await navigator.serviceWorker.register('/sw.js');
+                    // updateViaCache: 'none' ayuda a saltar el cache HTTP al buscar el sw.js
+                    const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
                     console.log('SW registrado correctamente');
+
+                    // Forzar chequeo inicial
+                    reg.update();
 
                     // Detectar si hay una actualización esperando
                     reg.addEventListener('updatefound', () => {
                         const newWorker = reg.installing;
                         newWorker.addEventListener('statechange', () => {
                             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                // Hay una nueva versión
-                                this.showUpdateModal();
+                                // Hay una nueva versión, forzamos SKIP_WAITING para actualización agresiva
+                                console.log('Nueva versión detectada, instalando...');
+                                newWorker.postMessage('SKIP_WAITING');
                             }
                         });
                     });
 
                     // Si ya hay un worker esperando al cargar la página
                     if (reg.waiting) {
-                        this.showUpdateModal();
+                        reg.waiting.postMessage('SKIP_WAITING');
                     }
+
+                    // Chequeo cíclico cada 2 minutos
+                    setInterval(() => {
+                        reg.update();
+                    }, 2 * 60 * 1000);
 
                 } catch (err) {
                     console.error('Error al registrar SW:', err);
