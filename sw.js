@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daviprojects-v40'; // Obligatoriedad de actualización y nuevas funciones
+const CACHE_NAME = 'daviprojects-v41'; // Forzar actualización de caché
 const ASSETS_TO_CACHE = [
   'index.html',
   'manifest.json',
@@ -68,37 +68,29 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // ESTRATEGIA: Network First para archivos de lógica y estilos (JS, CSS, HTML)
-  // Esto garantiza que si hay internet, descargue el código nuevo.
-  if (event.request.mode === 'navigate' || 
-      url.pathname.endsWith('.js') || 
-      url.pathname.endsWith('.css')) {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => caches.match(event.request))
-    );
-    return;
-  }
+  // Solo manejar recursos del mismo origen
+  if (url.origin !== self.location.origin) return;
 
-  // ESTRATEGIA: Cache First para activos estáticos (Imágenes, Fuentes)
+  // ESTRATEGIA GLOBAL: Network First
+  // Si hay red, siempre trae la última versión y actualiza caché.
+  // Si falla la red, usa la versión en caché.
   event.respondWith(
-    caches.match(event.request)
-      .then(cachedResponse => {
-        if (cachedResponse) return cachedResponse;
-
-        return fetch(event.request).then(networkResponse => {
-          if (!networkResponse || networkResponse.status !== 200) return networkResponse;
-          
+    fetch(event.request)
+      .then(networkResponse => {
+        if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then(cache => {
             cache.put(event.request, responseToCache);
           });
-          return networkResponse;
+        }
+        return networkResponse;
+      })
+      .catch(async () => {
+        const cachedResponse = await caches.match(event.request);
+        if (cachedResponse) return cachedResponse;
+        return new Response('Sin conexión', {
+          status: 503,
+          statusText: 'Offline'
         });
       })
   );

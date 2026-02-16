@@ -3,6 +3,7 @@
  */
 
 const NotificationHelper = {
+    isReloadingForUpdate: false,
     /**
      * Solicita permisos de notificación usando un modal elegante si el estado es 'default'.
      */
@@ -131,16 +132,15 @@ const NotificationHelper = {
                         const newWorker = reg.installing;
                         newWorker.addEventListener('statechange', () => {
                             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                // Hay una nueva versión, forzamos SKIP_WAITING para actualización agresiva
-                                console.log('Nueva versión detectada, instalando...');
-                                newWorker.postMessage('SKIP_WAITING');
+                                console.log('Nueva versión detectada y lista para actualizar.');
+                                NotificationHelper.showUpdateModal(reg);
                             }
                         });
                     });
 
                     // Si ya hay un worker esperando al cargar la página
                     if (reg.waiting) {
-                        reg.waiting.postMessage('SKIP_WAITING');
+                        NotificationHelper.showUpdateModal(reg);
                     }
 
                     // Chequeo cíclico cada 2 minutos
@@ -154,10 +154,9 @@ const NotificationHelper = {
             });
 
             // Recargar cuando el nuevo SW tome el control
-            let refreshing = false;
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-                if (refreshing) return;
-                refreshing = true;
+                if (NotificationHelper.isReloadingForUpdate) return;
+                NotificationHelper.isReloadingForUpdate = true;
                 window.location.reload();
             });
         }
@@ -166,7 +165,7 @@ const NotificationHelper = {
     /**
      * Muestra un modal elegante avisando que hay una nueva versión disponible.
      */
-    showUpdateModal() {
+    showUpdateModal(serviceWorkerRegistration = null) {
         const modalId = 'pwa-update-modal';
         if (document.getElementById(modalId)) return;
 
@@ -226,13 +225,22 @@ const NotificationHelper = {
         document.body.appendChild(modalOverlay);
 
         document.getElementById('pwa-update-btn').onclick = () => {
-            navigator.serviceWorker.getRegistration().then(reg => {
+            modalOverlay.remove();
+
+            const applyUpdate = (reg) => {
                 if (reg && reg.waiting) {
                     reg.waiting.postMessage('SKIP_WAITING');
                 } else {
                     window.location.reload();
                 }
-            });
+            };
+
+            if (serviceWorkerRegistration) {
+                applyUpdate(serviceWorkerRegistration);
+                return;
+            }
+
+            navigator.serviceWorker.getRegistration().then(applyUpdate);
         };
     }
 };

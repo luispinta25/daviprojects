@@ -49,6 +49,7 @@ document.addEventListener('click', (e) => {
     }
 });
 let currentStatusFilter = 'TODO';
+const STATUS_FILTER_PRIORITY = ['TODO', 'DOING', 'DONE', 'REVIEW', 'REJECTED'];
 let currentHistoryFolder = null; // Carpeta de historial seleccionada
 let currentElements = []; // Elementos de la tarea actual
 
@@ -492,6 +493,28 @@ const taskList = document.getElementById('mobile-task-list');
 const projectNameTitle = document.getElementById('mobile-project-name');
 const statusFilters = document.querySelectorAll('.filter-pill');
 
+function syncStatusFilterUI(status) {
+    statusFilters.forEach(pill => {
+        const isActive = pill.dataset.status === status;
+        pill.classList.toggle('active', isActive);
+        if (isActive) {
+            pill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+    });
+}
+
+function pickInitialStatusFilter(tasks) {
+    if (!Array.isArray(tasks) || tasks.length === 0) return 'TODO';
+
+    for (const status of STATUS_FILTER_PRIORITY) {
+        if (tasks.some(task => (task.estado || 'TODO') === status)) {
+            return status;
+        }
+    }
+
+    return 'TODO';
+}
+
 function applyRoleRestrictions() {
     const userRole = localStorage.getItem('user_role') || 'user';
     console.log('Aplicando restricciones para rol:', userRole);
@@ -503,18 +526,18 @@ function applyRoleRestrictions() {
     adminElements.forEach(el => {
         if (userRole === 'admin') {
             // Si es un modal, aseguramos que NO tenga style.display = 'none' 
-            // pero que conserve 'hidden' si lo tiene para que no se abra solo
             if (el.classList.contains('mobile-bottom-sheet') || el.classList.contains('modal')) {
                 el.style.display = '';
                 return;
             }
 
-            if (el.id === 'btn-edit-members') {
-                // Se maneja en updateMembersButtonVisibility
-            } else {
-                el.classList.remove('hidden');
-                if (el.style.display === 'none') el.style.display = '';
+            // Excluir botones que tienen lógica propia de visibilidad según contexto (ej: estar dentro de un proyecto)
+            if (el.id === 'btn-edit-members' || el.id === 'btn-edit-members-mobile') {
+                return; 
             }
+            
+            el.classList.remove('hidden');
+            if (el.style.display === 'none') el.style.display = '';
         } else {
             console.log('Ocultando elemento:', el.id || el.className);
             el.classList.add('hidden');
@@ -632,9 +655,8 @@ async function initMobile() {
     // Filtros de estado
     statusFilters.forEach(btn => {
         btn.onclick = () => {
-            statusFilters.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
             currentStatusFilter = btn.dataset.status;
+            syncStatusFilterUI(currentStatusFilter);
             renderTasks();
         };
     });
@@ -1250,8 +1272,10 @@ function updateMembersButtonVisibilityMobile() {
     const userRole = localStorage.getItem('user_role');
     if (userRole === 'admin' && currentProjectId) {
         btn.classList.remove('hidden');
+        btn.style.display = ''; // Asegurar que no tenga display:none
     } else {
         btn.classList.add('hidden');
+        btn.style.display = 'none';
     }
 }
 
@@ -1261,8 +1285,7 @@ let currentProjectMembersMobile = [];
 
 async function openMembersModalMobile() {
     if (!currentProjectId) return;
-    const modal = document.getElementById('modal-project-members');
-    modal.classList.remove('hidden');
+    openMobileSheet('modal-project-members');
     
     // Reset buscador
     const searchInput = document.getElementById('search-users-mobile');
@@ -1393,6 +1416,8 @@ async function selectProject(id) {
     switchView('mobile-tasks-view');
     
     currentTasks = await Storage.getTasks(id);
+    currentStatusFilter = pickInitialStatusFilter(currentTasks);
+    syncStatusFilterUI(currentStatusFilter);
     renderTasks();
 }
 
