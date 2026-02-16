@@ -111,9 +111,9 @@
             // Pequeño retardo para que el splash sea visible
             setTimeout(() => {
                 if (deviceType === 'mobile') {
-                    window.location.replace("/src/mobile/index.html" + window.location.search + extra);
+                    window.location.replace("src/mobile/index.html" + window.location.search + extra);
                 } else {
-                    window.location.replace("/src/desktop/index.html" + window.location.search);
+                    window.location.replace("src/desktop/index.html" + window.location.search);
                 }
             }, 700);
         }
@@ -131,7 +131,7 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 // updateViaCache: 'none' fuerza al navegador a ignorar el cache HTTP al buscar sw.js
-                navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+                navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
                     .then(reg => {
                         console.log('SW OK');
 
@@ -191,13 +191,13 @@
 </head>
 <body>
     <div class="loader">
-        <img src="/img/logo.webp" class="logo-splash" alt="Logo">
+        <img src="img/logo.webp" class="logo-splash" alt="Logo">
         <div class="spinner"></div>
     </div>
 
     <div class="powered-by-splash">
         <span>Powered by</span>
-        <img src="/img/lpsolutionslogo/png/lpsolutionswithe.webp" alt="LPSolutions Logo">
+        <img src="img/lpsolutionslogo/png/lpsolutionswithe.webp" alt="LPSolutions Logo">
     </div>
 </body>
 </html>

@@ -1065,7 +1065,10 @@ function renderProjectGalleries(filteredList = null) {
 
     // Solo actualizar la galería de la home si no estamos filtrando
     if (!filteredList) {
-        const isAdmin = AuthService.isAdmin();
+        const isAdmin = (typeof AuthService !== 'undefined' && typeof AuthService.isAdmin === 'function') 
+            ? AuthService.isAdmin() 
+            : (localStorage.getItem('user_role') === 'admin');
+            
         projectGallery.innerHTML = projects.slice(0, 3).map(renderCard).join('') || `
             <div style="padding: 1rem; text-align: center; opacity: 0.7;">
                 <p>${isAdmin ? 'No tienes proyectos aún' : 'No tienes proyectos asignados'}</p>
@@ -1074,7 +1077,9 @@ function renderProjectGalleries(filteredList = null) {
         `;
     }
     
-    const isAdminAll = AuthService.isAdmin();
+    const isAdminAll = (typeof AuthService !== 'undefined' && typeof AuthService.isAdmin === 'function') 
+        ? AuthService.isAdmin() 
+        : (localStorage.getItem('user_role') === 'admin');
     fullProjectsList.innerHTML = listToRender.map(renderCard).join('') || `
         <div style="text-align:center; padding:3rem; opacity:0.5;">
             <i class="fas fa-folder-open" style="font-size: 2rem; margin-bottom: 1rem; display: block;"></i>

@@ -996,7 +996,10 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
     gallery.innerHTML = '';
     
     if (projects.length === 0) {
-        const isAdmin = AuthService.isAdmin();
+        const isAdmin = (typeof AuthService !== 'undefined' && typeof AuthService.isAdmin === 'function') 
+            ? AuthService.isAdmin() 
+            : (localStorage.getItem('user_role') === 'admin');
+            
         gallery.innerHTML = `
             <div class="empty-state">
                 <div style="font-size: 3rem; margin-bottom: 1rem;"><i class="fas fa-rocket" style="color: var(--primary);"></i></div>

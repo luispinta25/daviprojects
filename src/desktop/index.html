@@ -16,16 +16,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="/src/desktop/style.css">
+    <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/src/shared/supabase-config.js"></script>
-    <script src="/src/shared/notification-helper.js"></script>
+    <script src="../shared/supabase-config.js"></script>
+    <script src="../shared/notification-helper.js"></script>
     <script>
         // Redirección responsiva dinámica
         function checkRedirection() {
             if (window.innerWidth <= 768) {
-                window.location.replace("/src/mobile/index.html" + window.location.search);
+                window.location.replace("../mobile/index.html" + window.location.search);
             }
         }
         window.addEventListener('resize', checkRedirection);
@@ -1085,10 +1085,10 @@
         </div>
     </div>
 
-    <script src="/src/shared/storage.js"></script>
-    <script src="/src/shared/chat-utils.js"></script>
-    <script src="/src/shared/image-editor.js"></script>
-    <script src="/src/shared/image-viewer.js"></script>
-    <script src="/src/desktop/script.js"></script>
+    <script src="../shared/storage.js"></script>
+    <script src="../shared/chat-utils.js"></script>
+    <script src="../shared/image-editor.js"></script>
+    <script src="../shared/image-viewer.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>

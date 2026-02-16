@@ -1,23 +1,22 @@
 const CACHE_NAME = 'daviprojects-v40'; // Obligatoriedad de actualización y nuevas funciones
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/img/logo.webp',
-  '/img/lpsolutionslogo/png/lpsolutionswithe.png',
-  '/img/lpsolutionslogo/png/lpsolutionswithe.webp',
-  '/src/desktop/index.html',
-  '/src/desktop/style.css',
-  '/src/desktop/script.js',
-  '/src/mobile/index.html',
-  '/src/mobile/style.css',
-  '/src/mobile/script.js',
-  '/src/shared/storage.js',
-  '/src/shared/supabase-config.js',
-  '/src/shared/notification-helper.js',
-  '/src/shared/chat-utils.js',
-  '/src/shared/image-editor.js',
-  '/src/shared/image-viewer.js'
+  'index.html',
+  'manifest.json',
+  'img/logo.webp',
+  'img/lpsolutionslogo/png/lpsolutionswithe.png',
+  'img/lpsolutionslogo/png/lpsolutionswithe.webp',
+  'src/desktop/index.html',
+  'src/desktop/style.css',
+  'src/desktop/script.js',
+  'src/mobile/index.html',
+  'src/mobile/style.css',
+  'src/mobile/script.js',
+  'src/shared/storage.js',
+  'src/shared/supabase-config.js',
+  'src/shared/notification-helper.js',
+  'src/shared/chat-utils.js',
+  'src/shared/image-editor.js',
+  'src/shared/image-viewer.js'
 ];
 
 // Install Service Worker

@@ -115,8 +115,12 @@ const NotificationHelper = {
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', async () => {
                 try {
+                    // Detectar si estamos en carpeta produccion o raíz
+                    const isProdFolder = window.location.pathname.includes('/produccion/');
+                    const swUrl = isProdFolder ? '/produccion/sw.js' : '/sw.js';
+
                     // updateViaCache: 'none' ayuda a saltar el cache HTTP al buscar el sw.js
-                    const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+                    const reg = await navigator.serviceWorker.register(swUrl, { updateViaCache: 'none' });
                     console.log('SW registrado correctamente');
 
                     // Forzar chequeo inicial

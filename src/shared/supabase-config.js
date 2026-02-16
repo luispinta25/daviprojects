@@ -52,6 +52,13 @@ const AuthService = {
         const { data: { session } } = await supabaseClient.auth.getSession();
         if (session && session.access_token) {
             supabaseClient.realtime.setAuth(session.access_token);
+            // Cache user role if not already cached
+            if (!localStorage.getItem('user_role')) {
+                try {
+                    const profile = await this.getUserProfile(session.user.id);
+                    if (profile) localStorage.setItem('user_role', profile.rol);
+                } catch (e) { console.error("Error caching role", e); }
+            }
         }
         return session;
     },
@@ -63,9 +70,18 @@ const AuthService = {
             .eq('auth_id', authId)
             .maybeSingle();
         if (error) throw error;
+        if (data && data.rol) {
+            localStorage.setItem('user_role', data.rol);
+        }
         return data;
+    },
+
+    isAdmin() {
+        const role = localStorage.getItem('user_role');
+        return role === 'admin';
     }
 };
 
-window.supabaseClient = supabaseClient;
+// Asegurar disponibilidad global inmediata
 window.AuthService = AuthService;
+window.supabaseClient = supabaseClient;

@@ -2520,79 +2520,6 @@ main {
     transition: all 0.3s;
 }
 
-/* MEMBER GALLERY MOBILE */
-.user-member-card-mobile {
-    background: white;
-    border-radius: 16px;
-    padding: 15px;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    border: 1px solid #e2e8f0;
-    transition: all 0.2s ease;
-}
-
-.user-member-card-mobile.is-member {
-    background: #f0fdf4;
-    border-color: var(--primary);
-    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.1);
-}
-
-.card-avatar-mobile {
-    width: 44px;
-    height: 44px;
-    background: #f1f5f9;
-    color: #64748b;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 800;
-    font-size: 1.1rem;
-    flex-shrink: 0;
-}
-
-.is-member .card-avatar-mobile {
-    background: var(--primary);
-    color: white;
-}
-
-.card-info-mobile {
-    flex: 1;
-}
-
-.user-name-mobile {
-    display: block;
-    font-weight: 700;
-    color: #1e293b;
-    font-size: 1rem;
-}
-
-.user-email-mobile {
-    display: block;
-    font-size: 0.8rem;
-    color: #94a3b8;
-}
-
-.check-indicator-mobile {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    border: 2px solid #e2e8f0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: transparent;
-    transition: all 0.2s;
-}
-
-.is-member .check-indicator-mobile {
-    background: var(--primary);
-    border-color: var(--primary);
-    color: white;
-    transform: scale(1.1);
-}
-
 .toast-reactions-player {
     display: flex;
     gap: 5px;
@@ -3006,4 +2933,149 @@ main {
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- MOBILE MEMBERS GALLERY --- */
+.modal-header-fixed {
+    background: #082359;
+    color: white;
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.modal-header-fixed .close-modal {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+}
+
+.modal-header-fixed h3 {
+    flex: 1;
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.count-badge {
+    background: var(--primary);
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.modal-body-scrollable {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+    background: #f8fafc;
+}
+
+.search-box-mobile {
+    position: relative;
+    margin-bottom: 1.5rem;
+}
+
+.search-box-mobile i {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+}
+
+.search-box-mobile input {
+    width: 100%;
+    padding: 0.8rem 1rem 0.8rem 2.5rem;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    font-size: 0.95rem;
+    background: white;
+}
+
+.mobile-members-gallery {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+.mobile-user-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: all 0.2s;
+}
+
+.mobile-user-card.is-member {
+    border-color: var(--primary);
+    background: #f0fdf4;
+}
+
+.mobile-card-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: #082359;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+
+.mobile-card-info {
+    flex: 1;
+}
+
+.mobile-user-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    display: block;
+}
+
+.mobile-user-email {
+    font-size: 0.75rem;
+    color: #64748b;
+}
+
+.mobile-check {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid #cbd5e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.is-member .mobile-check {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.modal-footer-fixed {
+    padding: 1rem;
+    background: white;
+    border-top: 1px solid #e2e8f0;
+}
+
+.btn-primary-full {
+    width: 100%;
+    background: #082359;
+    color: white;
+    border: none;
+    padding: 1rem;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 1rem;
 }
