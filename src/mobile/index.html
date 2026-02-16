@@ -256,7 +256,7 @@
             <section id="mobile-all-projects-view" class="view hidden">
                 <div class="view-header-fixed">
                     <h3>Todos los Proyectos</h3>
-                    <button class="btn-icon" id="btn-new-project-mobile"><i class="fas fa-plus"></i></button>
+                    <button class="btn-icon admin-only" id="btn-new-project-mobile"><i class="fas fa-plus"></i></button>
                 </div>
                 <div class="search-bar-container">
                     <i class="fas fa-search"></i>
@@ -282,7 +282,8 @@
                             <i class="fas fa-chevron-left"></i>
                         </button>
                         <h3 id="mobile-project-name">Selecciona un proyecto</h3>
-                        <button id="btn-project-settings" class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
+                        <button id="btn-edit-members-mobile" class="btn-icon admin-only" title="Gestionar Miembros"><i class="fas fa-users-cog"></i></button>
+                        <button id="btn-project-settings" class="btn-icon admin-only"><i class="fas fa-ellipsis-v"></i></button>
                     </div>
                     <!-- Reproductor elegante de proyecto si existe audio -->
                     <div id="project-audio-header-container" class="hidden" style="margin-bottom: 1rem;"></div>
@@ -466,7 +467,7 @@
                     <div class="act-icon blue"><i class="fas fa-tasks"></i></div>
                     <span>Nueva Tarea</span>
                 </button>
-                <button class="action-card" id="btn-create-project-sheet">
+                <button class="action-card admin-only" id="btn-create-project-sheet">
                     <div class="act-icon green"><i class="fas fa-folder-plus"></i></div>
                     <span>Nuevo Proyecto</span>
                 </button>
@@ -475,7 +476,7 @@
     </div>
 
     <!-- Modal Formulario Proyecto -->
-    <div id="mobile-modal-project" class="mobile-bottom-sheet full-screen hidden">
+    <div id="mobile-modal-project" class="mobile-bottom-sheet full-screen admin-only hidden">
         <div class="sheet-content">
             <div class="sheet-handle"></div>
             <div class="sheet-header">
@@ -494,6 +495,13 @@
                 <div class="input-group">
                     <label>Fecha de Vencimiento</label>
                     <input type="date" id="mobile-project-due-input">
+                </div>
+
+                <div class="input-group">
+                    <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.5rem;">Asignar Participantes (Mín. 1)</label>
+                    <div id="mobile-new-project-members" style="max-height: 250px; overflow-y: auto; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <!-- Dinámico -->
+                    </div>
                 </div>
             </div>
             <div class="sheet-footer">
@@ -723,7 +731,10 @@
             <div class="sheet-body">
                 <div class="input-group">
                     <label>Nombre del Proyecto</label>
-                    <h2 id="proj-detail-name" style="font-weight: 800; color: #082359;"></h2>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <h2 id="proj-detail-name" style="font-weight: 800; color: #082359; flex: 1;"></h2>
+                        <div id="proj-detail-members-mobile" style="display: flex; align-items: center; margin-left: 10px;"></div>
+                    </div>
                 </div>
                 <div class="input-group">
                     <label>Descripción</label>
@@ -917,6 +928,35 @@
                 <button class="btn-confirm-full" id="btn-save-music-mobile" style="flex: 1; height: 56px; font-size: 1.1rem; border-radius: 16px; background: #082359;">
                     <i class="fas fa-check-circle" style="margin-right: 8px;"></i> Guardar
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL GESTIÓN MIEMBROS MÓVIL (Full Width) -->
+    <div id="modal-project-members" class="modal hidden">
+        <div class="modal-content" style="width: 100%; height: 100vh; border-radius: 0; padding: 0;">
+            <div class="modal-header-fixed">
+                <button class="close-modal"><i class="fas fa-arrow-left"></i></button>
+                <h3>Gestionar Miembros</h3>
+                <span id="mobile-members-count" class="count-badge">0</span>
+            </div>
+            
+            <div class="modal-body-scrollable">
+                <div class="search-box-mobile">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-users-mobile" placeholder="Buscar usuarios...">
+                </div>
+
+                <div id="mobile-users-gallery" class="mobile-members-gallery">
+                    <!-- Cards de usuarios para móvil -->
+                    <div class="loader-container">
+                        <div class="spinner-loading"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer-fixed">
+                <button class="btn-primary-full close-modal">Finalizar Gestión</button>
             </div>
         </div>
     </div>

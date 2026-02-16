@@ -10,6 +10,30 @@ let currentUserIdMobile = null;
 let taskElementsChannelMobile = null; // Canal Realtime para elementos de tarea
 let currentViewId = 'mobile-gallery-view';
 
+// Mapa de colores persistente para usuarios
+const userColorMap = new Map();
+const AVATAR_COLORS = [
+    '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', 
+    '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#6366f1'
+];
+
+function getUserColor(userId) {
+    if (!userColorMap.has(userId)) {
+        const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+        userColorMap.set(userId, color);
+    }
+    return userColorMap.get(userId);
+}
+
+function getUserInitials(name) {
+    if (!name) return '?';
+    const words = name.trim().split(/\s+/);
+    if (words.length >= 2) {
+        return (words[0][0] + words[1][0]).toUpperCase();
+    }
+    return words[0].substring(0, 2).toUpperCase();
+}
+
 // --- NAVEGACIÓN ENTRE TABS ---
 document.addEventListener('click', (e) => {
     if (e.target.classList.contains('tab-btn')) {
@@ -174,9 +198,11 @@ function renderMobileIdeas() {
                     ` : ''}
                 </div>
                 <div class="idea-card-actions">
+                    ${!hasProject && AuthService.isAdmin() ? `
                     <button class="btn-idea-mini convert-btn" onclick="handleConvertIdeaToProjectMobile('${idea.id}')" title="Convertir">
                         <i class="fas fa-rocket"></i>
                     </button>
+                    ` : ''}
                     <button class="btn-idea-mini" onclick="deleteMobileIdea('${idea.id}', ${hasProject})" title="Borrar">
                         <i class="fas fa-trash-alt"></i>
                     </button>
@@ -466,8 +492,53 @@ const taskList = document.getElementById('mobile-task-list');
 const projectNameTitle = document.getElementById('mobile-project-name');
 const statusFilters = document.querySelectorAll('.filter-pill');
 
+function applyRoleRestrictions() {
+    const userRole = localStorage.getItem('user_role') || 'user';
+    console.log('Aplicando restricciones para rol:', userRole);
+    
+    // Ocultar elementos marcados como admin-only
+    const adminElements = document.querySelectorAll('.admin-only');
+    console.log('Elementos admin-only encontrados:', adminElements.length);
+    
+    adminElements.forEach(el => {
+        if (userRole === 'admin') {
+            // Si es un modal, aseguramos que NO tenga style.display = 'none' 
+            // pero que conserve 'hidden' si lo tiene para que no se abra solo
+            if (el.classList.contains('mobile-bottom-sheet') || el.classList.contains('modal')) {
+                el.style.display = '';
+                return;
+            }
+
+            if (el.id === 'btn-edit-members') {
+                // Se maneja en updateMembersButtonVisibility
+            } else {
+                el.classList.remove('hidden');
+                if (el.style.display === 'none') el.style.display = '';
+            }
+        } else {
+            console.log('Ocultando elemento:', el.id || el.className);
+            el.classList.add('hidden');
+            el.style.setProperty('display', 'none', 'important');
+        }
+    });
+
+    // Asegurar ocultación de botones específicos por ID si no es admin
+    if (userRole !== 'admin') {
+        ['fab-project', 'btn-new-project-card'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.classList.add('hidden');
+                btn.style.setProperty('display', 'none', 'important');
+            }
+        });
+    }
+}
+
 // --- INICIALIZACIÓN ---
 async function initMobile() {
+    // Aplicar restricciones antes de cargar nada
+    applyRoleRestrictions();
+
     // Pedir permisos de notificación de una vez usando el Helper elegante
     if (window.NotificationHelper) {
         NotificationHelper.requestPermission(true);
@@ -508,7 +579,7 @@ async function initMobile() {
 
     document.getElementById('btn-see-all-projects').onclick = () => switchView('mobile-all-projects-view');
     document.getElementById('btn-back-to-gallery').onclick = () => switchView('mobile-gallery-view');
-    document.getElementById('btn-new-project-mobile').onclick = () => openMobileSheet('mobile-modal-project');
+    document.getElementById('btn-new-project-mobile').onclick = () => openNewProjectSheet();
 
     // Configurar Notificaciones Push Mobile
     const btnNotifMobile = document.getElementById('btn-notifications-mobile');
@@ -579,7 +650,7 @@ async function initMobile() {
     };
     document.getElementById('btn-create-project-sheet').onclick = () => {
         closeMobileSheet('mobile-modal-actions');
-        openMobileSheet('mobile-modal-project');
+        openNewProjectSheet();
     };
 
     document.getElementById('save-task-mobile').onclick = handleSaveTask;
@@ -632,12 +703,14 @@ async function initMobile() {
             showMobileToast("Aviso", "El nombre es obligatorio", true);
             return;
         }
-        await createProject(name, desc, due);
-        closeMobileSheet('mobile-modal-project');
-        // Limpiar
-        document.getElementById('mobile-project-name-input').value = '';
-        document.getElementById('mobile-project-desc-input').value = '';
-        document.getElementById('mobile-project-due-input').value = '';
+        const success = await createProject(name, desc, due);
+        if (success) {
+            closeMobileSheet('mobile-modal-project');
+            // Limpiar
+            document.getElementById('mobile-project-name-input').value = '';
+            document.getElementById('mobile-project-desc-input').value = '';
+            document.getElementById('mobile-project-due-input').value = '';
+        }
     };
 
     // Priority Slider Mobile
@@ -702,6 +775,11 @@ async function initMobile() {
                 hideMobileSplash();
             }, 300);
             return;
+        } else {
+            // No se encontró en la caché local filtrada por permisos
+            showAccessDeniedModal("No tienes acceso a esta tarea o no existe.");
+            hideMobileSplash();
+            return;
         }
     }
 
@@ -712,11 +790,38 @@ async function initMobile() {
             await selectProject(targetProject.id);
             hideMobileSplash();
             return;
+        } else {
+            showAccessDeniedModal("Este proyecto no está disponible para ti o no existe.");
         }
     }
 
     switchView('mobile-gallery-view');
     hideMobileSplash();
+}
+
+function showAccessDeniedModal(message) {
+    const modalId = 'mobile-access-denied-modal';
+    let modal = document.getElementById(modalId);
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = modalId;
+        modal.className = 'mobile-bottom-sheet hidden';
+        modal.style.zIndex = '10000';
+        modal.innerHTML = `
+            <div class="sheet-content" style="padding: 3rem 2rem; text-align: center;">
+                <div class="sheet-handle"></div>
+                <div style="background: #fee2e2; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                    <i class="fas fa-user-lock" style="font-size: 1.8rem; color: #ef4444;"></i>
+                </div>
+                <h3 style="font-size: 1.5rem; margin-bottom: 1rem;">Sin Acceso</h3>
+                <p id="mobile-access-denied-msg" style="color: var(--text-muted); margin-bottom: 2.5rem; line-height: 1.5;"></p>
+                <button class="btn-primary-full" onclick="closeMobileSheet('${modalId}')">Volver</button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    document.getElementById('mobile-access-denied-msg').textContent = message;
+    openMobileSheet(modalId);
 }
 
 function hideMobileSplash() {
@@ -892,7 +997,7 @@ function switchView(viewId) {
             } else if (viewId === 'mobile-gallery-view') {
                 switchView('mobile-ideas-view');
             } else if (viewId === 'mobile-all-projects-view') {
-                openMobileSheet('mobile-modal-project');
+                openNewProjectSheet();
             } else if (viewId === 'mobile-music-view') {
                 openMobileSheet('mobile-modal-music');
             } else {
@@ -912,18 +1017,41 @@ function renderProjectGalleries(filteredList = null) {
     const listToRender = filteredList || projects;
     
     const renderCard = (p) => {
-        // Solo TODO, DOING, DONE
+        // Solo TODO, DOING, DONE (Calculamos progreso)
         const pTasks = allTasks.filter(t => t.proyecto_id === p.id && ['TODO', 'DOING', 'DONE'].includes(t.estado || 'TODO'));
         const done = pTasks.filter(t => t.estado === 'DONE').length;
         const prog = pTasks.length > 0 ? Math.round((done / pTasks.length) * 100) : 0;
         
+        // Obtener miembros del proyecto (Nested data from storage.js)
+        const projectMemberships = p.daviprojects_proyecto_miembros || [];
+        const memberAvatarsHtml = projectMemberships.slice(0, 3).map(m => {
+            const userName = m.daviplata_usuarios?.nombre || 'Usuario';
+            const initials = getUserInitials(userName);
+            const color = getUserColor(m.usuario_id);
+            return `
+                <div class="card-mini-avatar" title="${userName}" style="background: ${color}; width: 18px; height: 18px; font-size: 0.55rem; border: 1.5px solid #fff; margin-left: -5px;">
+                    ${initials}
+                </div>
+            `;
+        }).join('');
+
         return `
             <div class="mobile-project-card" onclick="selectProject('${p.id}')">
                 <div class="card-ico-box">
                     <i class="fas fa-folder"></i>
                 </div>
                 <div class="card-info">
-                    <h4>${p.nombre}</h4>
+                    <h4 style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.nombre}</span>
+                        <div style="display:flex; margin-left: auto;">
+                            ${memberAvatarsHtml}
+                            ${projectMemberships.length > 3 ? `
+                                <div class="card-mini-avatar" style="background: #94a3b8; width: 18px; height: 18px; font-size: 0.5rem; border: 1.5px solid #fff; margin-left: -5px; z-index: 0;">
+                                    +${projectMemberships.length - 3}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </h4>
                     <div class="prog-bar-mini">
                         <div class="prog-fill" style="width: ${prog}%"></div>
                     </div>
@@ -937,26 +1065,134 @@ function renderProjectGalleries(filteredList = null) {
 
     // Solo actualizar la galería de la home si no estamos filtrando
     if (!filteredList) {
-        projectGallery.innerHTML = projects.slice(0, 3).map(renderCard).join('') || '<p class="text-muted">No hay proyectos</p>';
+        const isAdmin = AuthService.isAdmin();
+        projectGallery.innerHTML = projects.slice(0, 3).map(renderCard).join('') || `
+            <div style="padding: 1rem; text-align: center; opacity: 0.7;">
+                <p>${isAdmin ? 'No tienes proyectos aún' : 'No tienes proyectos asignados'}</p>
+                ${isAdmin ? '<button class="btn-text" onclick="openNewProjectSheet()" style="margin-top: 0.5rem; color: var(--primary);">Crear nuevo</button>' : ''}
+            </div>
+        `;
     }
     
-    fullProjectsList.innerHTML = listToRender.map(renderCard).join('') || '<p style="text-align:center; padding:2rem; opacity:0.5;">No se encontraron proyectos.</p>';
+    const isAdminAll = AuthService.isAdmin();
+    fullProjectsList.innerHTML = listToRender.map(renderCard).join('') || `
+        <div style="text-align:center; padding:3rem; opacity:0.5;">
+            <i class="fas fa-folder-open" style="font-size: 2rem; margin-bottom: 1rem; display: block;"></i>
+            <p>${isAdminAll ? 'Empieza creando un proyecto.' : 'No se encontraron proyectos.'}</p>
+            ${isAdminAll ? '<button class="btn-primary" onclick="openNewProjectSheet()" style="margin-top: 1rem; padding: 0.5rem 1rem; border-radius: 8px;">Nuevo Proyecto</button>' : ''}
+        </div>
+    `;
+}
+
+let selectedUsersForNewProjectMob = [];
+
+function openNewProjectSheet() {
+    // Resetear form
+    document.getElementById('mobile-project-name-input').value = '';
+    document.getElementById('mobile-project-desc-input').value = '';
+    document.getElementById('mobile-project-due-input').value = '';
+    selectedUsersForNewProjectMob = [];
+    
+    openMobileSheet('mobile-modal-project');
+    renderNewProjectMembersMob();
+}
+
+async function renderNewProjectMembersMob() {
+    const list = document.getElementById('mobile-new-project-members');
+    if (!list) return;
+    list.innerHTML = '<div style="padding:1rem; text-align:center;"><div class="spinner-loading"></div></div>';
+
+    try {
+        if (allUsersMobileCache.length === 0) {
+            allUsersMobileCache = await Storage.getAllUsers();
+        }
+
+        list.innerHTML = '';
+        const users = allUsersMobileCache.filter(u => u.rol === 'user');
+
+        if (users.length === 0) {
+            list.innerHTML = '<p style="text-align:center; padding:1rem; color:#64748b;">No hay usuarios</p>';
+            return;
+        }
+
+        users.forEach(user => {
+            const card = document.createElement('div');
+            card.style.display = 'flex';
+            card.style.alignItems = 'center';
+            card.style.gap = '0.75rem';
+            card.style.padding = '0.75rem';
+            card.style.background = 'white';
+            card.style.borderRadius = '10px';
+            card.style.border = '1px solid #e2e8f0';
+
+            const initials = user.nombre.substring(0, 2).toUpperCase();
+            
+            card.innerHTML = `
+                <div style="width:36px; height:36px; border-radius:8px; background:#082359; color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.8rem;">${initials}</div>
+                <div style="flex:1;">
+                    <div style="font-weight:700; font-size:0.9rem;">${user.nombre}</div>
+                    <div style="font-size:0.7rem; color:#64748b;">${user.email}</div>
+                </div>
+                <div class="mob-check-box" style="width:20px; height:20px; border-radius:50%; border:2px solid #cbd5e1; display:flex; align-items:center; justify-content:center;">
+                    <i class="fas fa-check" style="color:white; font-size:0.7rem; display:none;"></i>
+                </div>
+            `;
+
+            card.onclick = () => {
+                const check = card.querySelector('.mob-check-box');
+                const icon = card.querySelector('.fa-check');
+                if (selectedUsersForNewProjectMob.includes(user.auth_id)) {
+                    selectedUsersForNewProjectMob = selectedUsersForNewProjectMob.filter(id => id !== user.auth_id);
+                    check.style.background = 'transparent';
+                    check.style.borderColor = '#cbd5e1';
+                    icon.style.display = 'none';
+                    card.style.borderColor = '#e2e8f0';
+                } else {
+                    selectedUsersForNewProjectMob.push(user.auth_id);
+                    check.style.background = 'var(--primary)';
+                    check.style.borderColor = 'var(--primary)';
+                    icon.style.display = 'block';
+                    card.style.borderColor = 'var(--primary)';
+                }
+            };
+
+            list.appendChild(card);
+        });
+    } catch (e) {
+        list.innerHTML = '<p style="text-align:center; color:red; padding:1rem;">Error cargando usuarios</p>';
+    }
 }
 
 async function createProject(nombre, descripcion = '', fecha_vencimiento = null) {
+    if (selectedUsersForNewProjectMob.length === 0) {
+        showMobileToast("Aviso", "Debes asignar al menos un participante", true);
+        return false;
+    }
+
     try {
         const newProj = await Storage.addProject({ 
             name: nombre, 
             description: descripcion, 
             fecha_vencimiento: fecha_vencimiento 
         });
+
+        // Asignar miembros
+        for (const userId of selectedUsersForNewProjectMob) {
+            await Storage.addProjectMember(newProj.id, userId);
+        }
         
-        await logMobileAction('CREAR_PROYECTO', `creó el proyecto *"${nombre}"*`, null);
+        await Storage.addHistory({
+            accion: 'CREAR_PROYECTO',
+            detalle: `creó el proyecto *"${nombre}"*`,
+            proyecto_id: newProj.id
+        });
 
         showMobileToast("Éxito", "Proyecto creado correctamente");
         await loadData();
+        return true;
     } catch (e) {
         showMobileToast("Error", "No se pudo crear el proyecto", true);
+        return false;
     }
 }
 
@@ -968,6 +1204,22 @@ function openProjectDetails() {
     const descEl = document.getElementById('proj-detail-desc');
     renderDescriptionWithAudios(descEl, project.descripcion || 'Sin descripción.');
     
+    // Renderizar miembros en el modal de detalles móvil
+    const membersContainer = document.getElementById('proj-detail-members-mobile');
+    if (membersContainer) {
+        const projectMemberships = project.daviprojects_proyecto_miembros || [];
+        membersContainer.innerHTML = projectMemberships.map(m => {
+            const userName = m.daviplata_usuarios?.nombre || 'Usu';
+            const initials = getUserInitials(userName);
+            const color = getUserColor(m.usuario_id);
+            return `
+                <div class="card-mini-avatar" title="${userName}" style="background: ${color}; width: 28px; height: 28px; font-size: 0.65rem; border-width: 2px;">
+                    ${initials}
+                </div>
+            `;
+        }).join('');
+    }
+
     openMobileSheet('mobile-project-details-modal');
 }
 
@@ -987,8 +1239,131 @@ async function handleDeleteProjectMobile() {
     }
 }
 
+function updateMembersButtonVisibilityMobile() {
+    const btn = document.getElementById('btn-edit-members-mobile');
+    if (!btn) return;
+    const userRole = localStorage.getItem('user_role');
+    if (userRole === 'admin' && currentProjectId) {
+        btn.classList.remove('hidden');
+    } else {
+        btn.classList.add('hidden');
+    }
+}
+
+// GESTIÓN DE MIEMBROS MODAL MOBILE
+let allUsersMobileCache = [];
+let currentProjectMembersMobile = [];
+
+async function openMembersModalMobile() {
+    if (!currentProjectId) return;
+    const modal = document.getElementById('modal-project-members');
+    modal.classList.remove('hidden');
+    
+    // Reset buscador
+    const searchInput = document.getElementById('search-users-mobile');
+    if (searchInput) searchInput.value = '';
+
+    await loadAllUsersAndMembersMobile();
+}
+
+async function loadAllUsersAndMembersMobile() {
+    const gallery = document.getElementById('mobile-users-gallery');
+    if (gallery) gallery.innerHTML = '<div class="loader-container"><div class="spinner-loading"></div></div>';
+    
+    try {
+        const [users, membersData] = await Promise.all([
+            Storage.getAllUsers(),
+            Storage.getProjectMembers(currentProjectId)
+        ]);
+
+        allUsersMobileCache = users;
+        currentProjectMembersMobile = membersData.map(m => m.usuario_id);
+        
+        renderMembersGalleryMobile();
+        updateMembersCountLabelMobile();
+    } catch (e) {
+        console.error("Error loading users mobile", e);
+        if (gallery) gallery.innerHTML = '<div style="color:red; text-align:center; padding:1rem;">Error de red</div>';
+    }
+}
+
+function renderMembersGalleryMobile(filter = '') {
+    const gallery = document.getElementById('mobile-users-gallery');
+    if (!gallery) return;
+    gallery.innerHTML = '';
+
+    const term = filter.toLowerCase();
+    // Filtro: Debe coincidir con el término de búsqueda Y ser de rol 'user'
+    const filtered = allUsersMobileCache.filter(u => 
+        (u.nombre.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)) && 
+        u.rol === 'user'
+    );
+
+    if (filtered.length === 0) {
+        gallery.innerHTML = '<div style="text-align:center; padding:2rem; opacity:0.5;">Sin resultados</div>';
+        return;
+    }
+
+    filtered.forEach(user => {
+        const isMember = currentProjectMembersMobile.includes(user.auth_id);
+        const card = document.createElement('div');
+        card.className = `mobile-user-card ${isMember ? 'is-member' : ''}`;
+        
+        card.innerHTML = `
+            <div class="mobile-card-avatar">${user.nombre.substring(0,2).toUpperCase()}</div>
+            <div class="mobile-card-info">
+                <span class="mobile-user-name">${user.nombre}</span>
+                <span class="mobile-user-email">${user.email}</span>
+            </div>
+            <div class="mobile-check">
+                ${isMember ? '<i class="fas fa-check"></i>' : ''}
+            </div>
+        `;
+
+        card.onclick = () => toggleUserMembershipMobile(user.auth_id, card);
+        gallery.appendChild(card);
+    });
+}
+
+async function toggleUserMembershipMobile(authId, cardElement) {
+    const isMember = currentProjectMembersMobile.includes(authId);
+    
+    try {
+        if (isMember) {
+            currentProjectMembersMobile = currentProjectMembersMobile.filter(id => id !== authId);
+            cardElement.classList.remove('is-member');
+            cardElement.querySelector('.mobile-check').innerHTML = '';
+            await Storage.removeProjectMember(currentProjectId, authId);
+        } else {
+            currentProjectMembersMobile.push(authId);
+            cardElement.classList.add('is-member');
+            cardElement.querySelector('.mobile-check').innerHTML = '<i class="fas fa-check"></i>';
+            await Storage.addProjectMember(currentProjectId, authId);
+        }
+        updateMembersCountLabelMobile();
+    } catch (e) {
+        console.error("Error toggling mobile membership:", e);
+        loadAllUsersAndMembersMobile();
+        showMobileToast("Error", "No se pudo actualizar");
+    }
+}
+
+function updateMembersCountLabelMobile() {
+    const label = document.getElementById('mobile-members-count');
+    if (label) label.textContent = currentProjectMembersMobile.length;
+}
+
+// Búsqueda mobile
+document.getElementById('search-users-mobile')?.addEventListener('input', (e) => {
+    renderMembersGalleryMobile(e.target.value);
+});
+
+// Listeners
+document.getElementById('btn-edit-members-mobile')?.addEventListener('click', openMembersModalMobile);
+
 async function selectProject(id) {
     currentProjectId = id;
+    updateMembersButtonVisibilityMobile();
     const project = projects.find(p => p.id === id);
     if (!project) return;
 

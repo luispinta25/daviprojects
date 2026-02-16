@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daviprojects-v37'; // Mejoras en botón de carga música y modal móvil
+const CACHE_NAME = 'daviprojects-v40'; // Obligatoriedad de actualización y nuevas funciones
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -57,6 +57,10 @@ self.addEventListener('activate', event => {
 // Fetch events
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+
+  // Evitar errores con extensiones de navegador (solo cachear http/https)
+  const url = new URL(event.request.url);
+  if (!['http:', 'https:'].includes(url.protocol)) return;
   
   // Ignorar peticiones a APIs externas (Supabase siempre fresco)
   if (event.request.url.includes('supabase.co') || 
@@ -64,8 +68,6 @@ self.addEventListener('fetch', event => {
       event.request.url.includes('google-analytics')) {
     return;
   }
-
-  const url = new URL(event.request.url);
 
   // ESTRATEGIA: Network First para archivos de lógica y estilos (JS, CSS, HTML)
   // Esto garantiza que si hay internet, descargue el código nuevo.

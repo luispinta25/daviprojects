@@ -56,6 +56,10 @@ body {
 
 
 
+.hidden { display: none !important; }
+
+
+
 #app {
 
     display: flex;
@@ -1441,6 +1445,220 @@ input[type="range"].priority-slider:active::-webkit-slider-thumb {
     margin: 0 !important;
 }
 
+/* --- MEMBERS GALLERY VIEW --- */
+#modal-project-members .modal-body {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    padding: 2rem 0;
+    align-items: center;
+}
+
+.members-gallery-container {
+    padding: 0 4rem;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.search-members-box {
+    position: relative;
+    margin: 0 auto 3rem;
+    width: 100%;
+    max-width: 500px;
+}
+
+.search-members-box i {
+    position: absolute;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 1.2rem;
+}
+
+.search-members-box input {
+    width: 100%;
+    padding: 1.2rem 1.2rem 1.2rem 3.5rem;
+    border-radius: 20px;
+    border: 2px solid #e2e8f0;
+    font-size: 1.1rem;
+    transition: all 0.3s ease;
+    background: #f8fafc;
+    text-align: center;
+}
+
+.search-members-box input:focus {
+    border-color: #10b981;
+    background: white;
+    box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.1);
+    text-align: left;
+}
+
+.users-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+    width: 100%;
+    padding-bottom: 5rem;
+}
+
+.user-member-card {
+    background: white;
+    border: 2px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 1.2rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.user-member-card:hover {
+    border-color: #10b981;
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.1);
+}
+
+.user-member-card.is-member {
+    border: 2px solid #10b981;
+    background: #f0fdf4;
+}
+
+.card-avatar {
+    width: 58px;
+    height: 58px;
+    border-radius: 14px;
+    background: #082359;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    font-weight: 700;
+}
+
+.card-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.card-info .user-name {
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 1.1rem;
+    display: block;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-info .user-email {
+    font-size: 0.85rem;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.check-indicator {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #cbd5e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.user-member-card.is-member .check-indicator {
+    background: #10b981;
+    border-color: #10b981;
+    color: white;
+}
+
+/* Eliminamos el ::after con content f00c para evitar la doble palomita */
+.user-member-card.is-member .check-indicator::after {
+    display: none;
+}
+
+/* Badge en el footer */
+.selected-count-badge {
+    background: #082359;
+    color: white;
+    padding: 0.7rem 1.5rem;
+    border-radius: 50px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    box-shadow: 0 4px 12px rgba(8, 35, 89, 0.2);
+}
+
+.modal-header-with-edit .modal-category {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #082359;
+    letter-spacing: 1.5px;
+    margin-bottom: 0.2rem;
+    display: block;
+}
+
+#modal-project-members .modal-title-group h1 {
+    font-size: 2.2rem;
+    color: #082359;
+    font-weight: 800;
+    margin-top: 5px;
+}
+
+#modal-project-members .modal-title-group p {
+    color: #64748b;
+    font-size: 1.1rem;
+    margin-top: 5px;
+}
+
+#modal-project-members .modal-footer {
+    padding: 1.5rem 4rem;
+    justify-content: space-between !important;
+    background: white;
+    border-top: 1px solid #f1f5f9;
+}
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    background: white;
+}
+
+.is-member .check-indicator {
+    background: #10b981;
+    border-color: #10b981;
+    color: white;
+}
+
+.check-indicator i {
+    font-size: 0.7rem;
+    opacity: 0;
+    transition: all 0.2s;
+}
+
+.is-member .check-indicator i {
+    opacity: 1;
+}
+
+.selected-count-badge {
+    background: #082359;
+    color: white;
+    padding: 0.6rem 1.2rem;
+    border-radius: 50px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
 
 
 .modal-content input:focus, .modal-content textarea:focus {
@@ -1467,10 +1685,10 @@ input[type="range"].priority-slider:active::-webkit-slider-thumb {
 
 .modal-close-corner {
     position: absolute;
-    top: 25px;
-    right: 25px;
-    width: 46px;
-    height: 46px;
+    top: 10px;
+    right: 10px;
+    width: 36px;
+    height: 36px;
     background: #10b981 !important; /* Verde esmeralda forzado */
     border: none !important;
     border-radius: 50% !important;
@@ -4413,6 +4631,54 @@ input[type="range"].priority-slider:active::-webkit-slider-thumb {
     color: #64748b;
 
     font-weight: 600;
+
+}
+
+
+
+/* Mini Avatares en Tarjetas */
+
+.card-mini-avatar {
+
+    width: 28px;
+
+    height: 28px;
+
+    border-radius: 50%;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    color: white;
+
+    font-size: 0.75rem;
+
+    font-weight: 700;
+
+    border: 2px solid white;
+
+    margin-left: -10px;
+
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+
+    position: relative;
+
+    transition: transform 0.2s, z-index 0.2s;
+
+    cursor: default;
+
+}
+
+
+
+.card-mini-avatar:hover {
+
+    transform: translateY(-5px) scale(1.1);
+
+    z-index: 10 !important;
 
 }
 

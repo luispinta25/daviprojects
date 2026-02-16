@@ -180,7 +180,7 @@
         </div>
     </div>
     <div id="app">
-        <button id="btn-fab-project" class="fab-project hidden" title="Nuevo Proyecto">
+        <button id="btn-fab-project" class="fab-project admin-only hidden" title="Nuevo Proyecto">
             <i class="fas fa-plus"></i>
         </button>
         <div id="main-container">
@@ -210,7 +210,7 @@
                     </ul>
                     <div class="sidebar-header" style="margin-top: 1.5rem;">
                         <h2>Proyectos</h2>
-                        <button id="btn-new-project" title="Nuevo Proyecto"><i class="fas fa-plus"></i></button>
+                        <button id="btn-new-project" class="admin-only" title="Nuevo Proyecto"><i class="fas fa-plus"></i></button>
                     </div>
                     <ul id="project-list">
                         <!-- Projects will be loaded here -->
@@ -229,6 +229,9 @@
                     <div class="header-left">
                         <button id="btn-open-sidebar" class="btn-hamburger"><i class="fas fa-bars"></i></button>
                         <h1 id="current-project-name">DaviProjects</h1>
+                        <button id="btn-edit-members" class="btn-secondary hidden" style="margin-left: 1rem; padding: 0.4rem 0.8rem; font-size: 0.8rem;">
+                            <i class="fas fa-users-cog"></i> Miembros
+                        </button>
                         <div class="view-switch hidden" id="view-controls" style="margin-left: 2rem;">
                             <button id="btn-view-kanban" class="active">
                                 <i class="fas fa-columns"></i>
@@ -495,7 +498,7 @@
 
     <!-- Modals -->
     <div id="modal-idea" class="modal hidden">
-        <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-content">
             <button class="modal-close-corner close-modal" title="Cerrar"><i class="fas fa-times"></i></button>
             <div class="modal-priority-banner" style="background: #fbbf24;"></div>
             
@@ -561,8 +564,8 @@
     </div>
 
     <!-- Modals Existentes -->
-    <div id="modal-project" class="modal hidden">
-        <div class="modal-content" style="max-width: 550px;">
+    <div id="modal-project" class="modal admin-only hidden">
+        <div class="modal-content">
             <button class="modal-close-corner close-modal" title="Cerrar"><i class="fas fa-times"></i></button>
             <div class="modal-priority-banner" style="background: var(--primary);"></div>
             
@@ -585,6 +588,13 @@
                     <input type="datetime-local" id="new-project-due" style="width: 100%; padding: 0.85rem 1.15rem; border-radius: 0.85rem; border: 2px solid #f1f5f9; font-size: 1rem; outline: none; transition: all 0.2s;">
                 </div>
 
+                <div class="form-group" style="margin-bottom: 2rem;">
+                    <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Asignar Participantes (Mín. 1)</label>
+                    <div id="new-project-members-list" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; background: #f8fafc; padding: 1rem; border-radius: 1rem; border: 2px solid #f1f5f9;">
+                        <!-- Se poblará dinámicamente -->
+                    </div>
+                </div>
+
                 <div class="modal-actions" style="justify-content: flex-end; gap: 1rem;">
                     <button class="close-modal" style="background: #f1f5f9; color: #64748b; border: none; padding: 0.85rem 1.5rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s;">Cancelar</button>
                     <button id="save-project" style="background: var(--primary); color: white; border: none; padding: 0.85rem 2rem; border-radius: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);">Crear Proyecto</button>
@@ -595,15 +605,20 @@
 
     <!-- Modal Detalles de Proyecto -->
     <div id="modal-project-details" class="modal hidden">
-        <div class="modal-content" style="max-width: 650px;">
+        <div class="modal-content">
             <button class="modal-close-corner close-modal" title="Cerrar"><i class="fas fa-times"></i></button>
             <div id="details-project-banner" class="modal-priority-banner" style="background: var(--primary);"></div>
             
             <div style="padding: 2.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; padding-right: 2.5rem;">
                     <div>
                         <h3 id="details-project-name" style="font-size: 1.75rem; color: #0f172a; margin-bottom: 0.25rem;">Proyecto</h3>
-                        <div id="details-project-status" class="project-badge">Activo</div>
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div id="details-project-status" class="project-badge">Activo</div>
+                            <div id="details-project-members" style="display: flex; align-items: center; margin-left: 0.5rem;">
+                                <!-- Miembros dinámicos -->
+                            </div>
+                        </div>
                     </div>
                     <div style="text-align: right;">
                         <span id="details-project-progress-text" style="font-size: 1.5rem; font-weight: 800; color: var(--primary);">0%</span>
@@ -1005,6 +1020,51 @@
             <div class="modal-footer">
                 <button id="btn-cancel-music-pc" class="btn-studio-sec">Descartar</button>
                 <button id="btn-do-upload-music" class="btn-studio-pri">Sincronizar y Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: GESTIÓN DE MIEMBROS (ADMIN SOLO) -->
+    <div id="modal-project-members" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-close-corner close-modal">
+                <i class="fas fa-times"></i>
+            </div>
+            
+            <div class="modal-header-with-edit">
+                <div class="modal-title-group">
+                    <span class="modal-category">ADMINISTRACIÓN</span>
+                    <h1>Gestionar Miembros del Proyecto</h1>
+                    <p>Selecciona los usuarios que tendrán acceso a este espacio de trabajo.</p>
+                </div>
+            </div>
+
+            <div class="modal-body">
+                <div class="members-gallery-container">
+                    <div class="search-members-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="search-users" placeholder="Buscar usuarios por nombre o email...">
+                    </div>
+                    
+                    <div id="users-gallery-grid" class="users-gallery-grid">
+                        <!-- Cards dinámicas de usuarios -->
+                        <div class="loader-container">
+                            <div class="spinner-loading"></div>
+                            <span>Cargando usuarios...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <div class="selected-count-badge">
+                        <i class="fas fa-users"></i> <span id="members-count">0</span> miembros
+                    </div>
+                </div>
+                <button class="btn-primary-alt close-modal" style="background: #05A64B; color: white; border: none; padding: 0.8rem 2rem; border-radius: 50px; font-weight: 700;">
+                    Listo, Guardar Cambios
+                </button>
             </div>
         </div>
     </div>

@@ -148,6 +148,12 @@
                         if (reg.waiting) {
                             reg.waiting.postMessage('SKIP_WAITING');
                         }
+
+                        // Verificar actualizaciones cada 5 minutos
+                        setInterval(() => {
+                            reg.update();
+                            console.log('Checking for updates...');
+                        }, 5 * 60 * 1000);
                     })
                     .catch(err => console.error('SW Error', err));
 
@@ -160,6 +166,22 @@
                     }
                 });
             });
+        }
+
+        // Obligatoriedad de versión (Clear cache if version mismatch)
+        const APP_VERSION = '40.0.0';
+        const savedVersion = localStorage.getItem('app_version');
+        if (savedVersion && savedVersion !== APP_VERSION) {
+            console.log('Nueva versión detectada. Limpiando caché...');
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    for (let name of names) caches.delete(name);
+                });
+            }
+            localStorage.setItem('app_version', APP_VERSION);
+            window.location.reload();
+        } else if (!savedVersion) {
+            localStorage.setItem('app_version', APP_VERSION);
         }
     </script>
 </head>

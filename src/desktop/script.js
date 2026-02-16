@@ -10,6 +10,30 @@ let currentHistoryFolder = null;
 let globalAllTasks = []; // Caché global para sincronización silenciosa
 let taskElementsChannel = null; // Canal Realtime para elementos de tarea
 
+// Mapa de colores persistente para usuarios
+const userColorMap = new Map();
+const AVATAR_COLORS = [
+    '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', 
+    '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#6366f1'
+];
+
+function getUserColor(userId) {
+    if (!userColorMap.has(userId)) {
+        const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+        userColorMap.set(userId, color);
+    }
+    return userColorMap.get(userId);
+}
+
+function getUserInitials(name) {
+    if (!name) return '?';
+    const words = name.trim().split(/\s+/);
+    if (words.length >= 2) {
+        return (words[0][0] + words[1][0]).toUpperCase();
+    }
+    return words[0].substring(0, 2).toUpperCase();
+}
+
 const STATUS_NAMES = {
     'TODO': 'Por Hacer',
     'DOING': 'En Progreso',
@@ -130,7 +154,7 @@ function createIdeaCard(idea) {
                     </button>
                 `}
             </div>
-            ${!idea.proyecto_id ? `
+            ${!idea.proyecto_id && (typeof AuthService !== 'undefined' && AuthService.isAdmin()) ? `
                 <button class="btn-convert-idea" onclick="event.stopPropagation(); prepareConversion('${idea.id}')">
                     <i class="fas fa-rocket"></i> Crear Proyecto
                 </button>
@@ -518,6 +542,45 @@ function checkUser() {
     showApp();
 }
 
+function applyRoleRestrictions() {
+    const userRole = localStorage.getItem('user_role') || 'user';
+    const adminElements = document.querySelectorAll('.admin-only');
+    
+    adminElements.forEach(el => {
+        if (userRole === 'admin') {
+            // Si es un modal, aseguramos que NO tenga style.display = 'none' 
+            // pero que conserve 'hidden' si lo tiene para que no se abra solo
+            if (el.classList.contains('modal')) {
+                el.style.display = '';
+                return;
+            }
+
+            // No quitamos 'hidden' si es un botón de miembros en el header que debe ocultarse
+            if (el.id === 'btn-edit-members') {
+                // El botón de miembros se maneja por updateMembersButtonVisibility
+            } else {
+                el.classList.remove('hidden');
+                if (el.style.display === 'none') el.style.display = '';
+            }
+        } else {
+            el.classList.add('hidden');
+            el.style.setProperty('display', 'none', 'important');
+        }
+    });
+
+    // Casos especiales: Deshabilitar clics si por alguna razón siguen ahí
+    if (userRole !== 'admin') {
+        const createBtns = ['btn-new-project', 'btn-fab-project'];
+        createBtns.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.classList.add('hidden');
+                btn.style.display = 'none';
+            }
+        });
+    }
+}
+
 async function showApp() {
     // Asegurar que el loader sea visible inicialmente (por si acaso)
     const splashLoader = document.getElementById('loading');
@@ -525,6 +588,9 @@ async function showApp() {
         splashLoader.classList.remove('hidden');
         splashLoader.style.display = 'flex';
     }
+
+    // Aplicar restricciones de rol inmediatamente
+    applyRoleRestrictions();
 
     // Pedir permisos de notificación de una vez usando el Helper elegante
     if (window.NotificationHelper) {
@@ -549,6 +615,12 @@ async function showApp() {
                 if (welcomeMsg) {
                     welcomeMsg.textContent = `¡Hola de nuevo, ${profile.nombre.split(' ')[0]}!`;
                 }
+
+                // Aplicar restricciones de rol (incluye ocultar botones de creación si no es admin)
+                applyRoleRestrictions();
+
+                // Mostrar botón de miembros si es admin y hay proyecto activo
+                updateMembersButtonVisibility(profile.rol);
             }
         } catch (e) {
             console.error("Error al obtener perfil:", e);
@@ -683,11 +755,21 @@ async function showApp() {
                         hideLoading(); 
                     }, 500);
                     return;
+                } else {
+                    // No tiene acceso al proyecto de esa tarea
+                    showAccessDeniedModal("No tienes permiso para ver esta tarea o el proyecto asociado.");
+                    hideLoading();
                 }
+            } else {
+                showAccessDeniedModal("La tarea solicitada no existe o no está disponible.");
+                hideLoading();
             }
         } catch (e) {
             console.error("Error al cargar tarea desde URL:", e);
+            showAccessDeniedModal("No se pudo cargar la tarea. Puede que el enlace sea incorrecto o no tengas permisos.");
+            hideLoading();
         }
+        return; // Detener flujo si intentó cargar tarea
     }
 
     // 2. Si solo hay ID de proyecto
@@ -697,6 +779,9 @@ async function showApp() {
             await selectProject(targetProject);
             hideLoading();
             return;
+        } else {
+            // Proyecto no encontrado o no disponible para este usuario
+            showAccessDeniedModal("Este proyecto no está disponible para ti o no existe. Contacta al administrador si crees que es un error.");
         }
     }
 
@@ -707,6 +792,50 @@ async function showApp() {
     document.getElementById('sidebar')?.classList.add('closed');
 
     hideLoading();
+}
+
+function showAccessDeniedModal(message) {
+    const modalId = 'access-denied-modal';
+    let modal = document.getElementById(modalId);
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = modalId;
+        // Forzamos estilos de centrado total para evitar conflictos con el CSS global
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(7, 26, 64, 0.4);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            animation: fadeIn 0.3s ease;
+        `;
+        
+        modal.innerHTML = `
+            <div style="background: white; width: 90%; max-width: 500px; border-radius: 24px; padding: 3.5rem 2rem; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); transform: translateY(0); animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+                <div style="background: #fee2e2; width: 90px; height: 90px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 2rem; box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.2);">
+                    <i class="fas fa-lock" style="font-size: 2.5rem; color: #ef4444;"></i>
+                </div>
+                <h2 style="font-size: 1.75rem; color: #1e293b; margin-bottom: 1rem; font-weight: 800;">Acceso No Disponible</h2>
+                <p id="access-denied-msg" style="color: #64748b; line-height: 1.6; font-size: 1.1rem; margin-bottom: 3rem; max-width: 320px; margin-left: auto; margin-right: auto;"></p>
+                <button class="btn-primary" style="width: 100%; height: 60px; font-size: 1.1rem; border-radius: 16px; font-weight: 600; background: #05A64B; border: none; color: white; cursor: pointer; transition: transform 0.2s;" 
+                    onclick="document.getElementById('${modalId}').remove()"
+                    onmouseover="this.style.transform='scale(1.02)'"
+                    onmouseout="this.style.transform='scale(1)'">
+                    Entendido, volver
+                </button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    const msgEl = modal.querySelector('#access-denied-msg');
+    if (msgEl) msgEl.textContent = message;
+    modal.classList.remove('hidden');
 }
 
 async function updateDashboardMetrics() {
@@ -778,6 +907,7 @@ async function syncDataSilently() {
 async function showGallery() {
     try {
         currentProject = null;
+        updateMembersButtonVisibility();
         document.getElementById('current-project-name').textContent = "Dashboard";
         
         // FAB: Ocultar en el Dashboard
@@ -866,14 +996,19 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
     gallery.innerHTML = '';
     
     if (projects.length === 0) {
+        const isAdmin = AuthService.isAdmin();
         gallery.innerHTML = `
             <div class="empty-state">
                 <div style="font-size: 3rem; margin-bottom: 1rem;"><i class="fas fa-rocket" style="color: var(--primary);"></i></div>
-                <h3>No tienes proyectos aún</h3>
-                <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Comienza organizando tu primer gran idea.</p>
-                <button class="btn-start" onclick="document.getElementById('modal-project').classList.remove('hidden')">
-                    Para empezar crea tu primer proyecto
-                </button>
+                <h3>${isAdmin ? 'No tienes proyectos aún' : 'Aún no se te ha asignado ningún proyecto'}</h3>
+                <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+                    ${isAdmin ? 'Comienza organizando tu primer gran idea.' : 'Contacta con un administrador para que te asigne a uno.'}
+                </p>
+                ${isAdmin ? `
+                    <button class="btn-start" onclick="document.getElementById('modal-project').classList.remove('hidden')">
+                        Para empezar crea tu primer proyecto
+                    </button>
+                ` : ''}
             </div>
         `;
         return;
@@ -919,10 +1054,37 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
         const card = document.createElement('div');
         card.className = 'project-card';
         card.setAttribute('data-id', project.id);
+        
+        // Obtener miembros del proyecto (si existen en el objeto proyecto)
+        const projectMemberships = project.daviprojects_proyecto_miembros || [];
+        const memberAvatarsHtml = projectMemberships.length > 0 ? `
+            <div class="project-card-members" style="display: flex; align-items: center; margin-left: 0.5rem; flex-direction: row-reverse;">
+                ${projectMemberships.slice(0, 4).map(m => {
+                    const name = m.daviplata_usuarios?.nombre || 'U';
+                    const userId = m.usuario_id;
+                    return `
+                        <div class="card-mini-avatar" 
+                             style="background: ${getUserColor(userId)}; width: 26px; height: 26px; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; border: 2px solid white; margin-left: -8px;" 
+                             title="${name}">
+                            ${getUserInitials(name)}
+                        </div>
+                    `;
+                }).join('')}
+                ${projectMemberships.length > 4 ? `
+                    <div style="width: 26px; height: 26px; border-radius: 50%; background: #f1f5f9; color: #64748b; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; border: 2px solid white; margin-left: -8px;">
+                        +${projectMemberships.length - 4}
+                    </div>
+                ` : ''}
+            </div>
+        ` : '';
+
         card.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 0.75rem;">
                 <h3 style="margin:0; font-size: 1.1rem; color: var(--primary);">${project.nombre || project.name}</h3>
-                <div class="project-badge ${progress === 100 ? 'status-done' : 'status-active'}">${progress === 100 ? 'Finalizado' : 'Activo'}</div>
+                <div style="display: flex; align-items: center;">
+                    <div class="project-badge ${progress === 100 ? 'status-done' : 'status-active'}">${progress === 100 ? 'Finalizado' : 'Activo'}</div>
+                    ${memberAvatarsHtml}
+                </div>
             </div>
             
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 2.4rem;">
@@ -1027,6 +1189,22 @@ async function showProjectDetails(project, allTasks = []) {
     const statusBadge = document.getElementById('details-project-status');
     statusBadge.textContent = progress === 100 ? 'FINALIZADO' : 'ACTIVO';
     statusBadge.className = `project-badge ${progress === 100 ? 'status-done' : 'status-active'}`;
+
+    // Renderizar miembros en el modal
+    const membersContainer = document.getElementById('details-project-members');
+    if (membersContainer) {
+        const projectMemberships = project.daviprojects_proyecto_miembros || [];
+        membersContainer.innerHTML = projectMemberships.map(m => {
+            const userName = m.daviplata_usuarios?.nombre || 'Usuario';
+            const initials = getUserInitials(userName);
+            const color = getUserColor(m.usuario_id);
+            return `
+                <div class="card-mini-avatar" title="${userName}" style="background: ${color}; width: 32px; height: 32px; font-size: 0.8rem; border-width: 2.5px;">
+                    ${initials}
+                </div>
+            `;
+        }).join('');
+    }
 
     const statsContainer = document.getElementById('details-project-stats');
     statsContainer.innerHTML = `
@@ -1185,6 +1363,9 @@ async function selectProject(project) {
     currentProject = project;
     document.getElementById('current-project-name').textContent = project.nombre || project.name;
     
+    // Nueva línea: Control de visibilidad del botón de miembros
+    updateMembersButtonVisibility();
+
     // FAB: Ocultar al entrar a un proyecto
     const fab = document.getElementById('btn-fab-project');
     if (fab) fab.classList.add('hidden');
@@ -1236,8 +1417,100 @@ async function selectProject(project) {
     }
 }
 
+function openProjectModal() {
+    // Resetear formulario
+    document.getElementById('new-project-name').value = '';
+    document.getElementById('new-project-desc').value = '';
+    document.getElementById('new-project-due').value = '';
+    selectedUsersForNewProject = [];
+    
+    // Mostrar modal
+    const modal = document.getElementById('modal-project');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex'; // Forzar display flex por si acaso
+    }
+
+    // Poblar lista de usuarios
+    renderNewProjectMembers();
+}
+
+async function renderNewProjectMembers() {
+    const list = document.getElementById('new-project-members-list');
+    if (!list) return;
+    list.innerHTML = '<p style="text-align: center; font-size: 0.8rem; color: #64748b; padding: 1rem;">Cargando usuarios...</p>';
+
+    try {
+        if (allUsersCache.length === 0) {
+            allUsersCache = await Storage.getAllUsers();
+        }
+
+        list.innerHTML = '';
+        // Solo usuarios (los admin no cuentan/no se asignan aquí)
+        const users = allUsersCache.filter(u => u.rol === 'user');
+
+        if (users.length === 0) {
+            list.innerHTML = '<p style="text-align: center; font-size: 0.8rem; color: #64748b; padding: 1rem;">No hay usuarios disponibles</p>';
+            return;
+        }
+
+        users.forEach(user => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.gap = '1rem';
+            row.style.padding = '0.75rem';
+            row.style.borderRadius = '0.75rem';
+            row.style.background = 'white';
+            row.style.border = '1px solid #e2e8f0';
+            row.style.cursor = 'pointer';
+            row.style.transition = 'all 0.2s';
+            row.style.marginBottom = '0.5rem';
+
+            const initials = getUserInitials(user.nombre);
+            const color = getUserColor(user.auth_id);
+
+            row.innerHTML = `
+                <div style="width: 32px; height: 32px; border-radius: 8px; background: ${color}; color: white; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700;">${initials}</div>
+                <div style="flex: 1;">
+                    <span style="display: block; font-size: 0.85rem; font-weight: 600;">${user.nombre}</span>
+                    <span style="display: block; font-size: 0.7rem; color: #64748b;">${user.email}</span>
+                </div>
+                <div class="check-box" style="width: 20px; height: 20px; border-radius: 4px; border: 2px solid #cbd5e1; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
+                    <i class="fas fa-check" style="font-size: 0.7rem; color: white; display: none;"></i>
+                </div>
+            `;
+
+            row.onclick = () => {
+                const check = row.querySelector('.check-box');
+                const icon = row.querySelector('.fa-check');
+                if (selectedUsersForNewProject.includes(user.auth_id)) {
+                    selectedUsersForNewProject = selectedUsersForNewProject.filter(id => id !== user.auth_id);
+                    check.style.background = 'white';
+                    check.style.borderColor = '#cbd5e1';
+                    icon.style.display = 'none';
+                    row.style.borderColor = '#e2e8f0';
+                    row.style.background = 'white';
+                } else {
+                    selectedUsersForNewProject.push(user.auth_id);
+                    check.style.background = 'var(--primary)';
+                    check.style.borderColor = 'var(--primary)';
+                    icon.style.display = 'block';
+                    row.style.borderColor = 'var(--primary)';
+                    row.style.background = '#f0fdf4';
+                }
+            };
+
+            list.appendChild(row);
+        });
+    } catch (e) {
+        console.error("Error al cargar miembros para nuevo proyecto:", e);
+        list.innerHTML = '<p style="text-align: center; color: red; font-size: 0.8rem;">Error al cargar usuarios</p>';
+    }
+}
+
 document.getElementById('btn-new-project').addEventListener('click', () => {
-    document.getElementById('modal-project').classList.remove('hidden');
+    openProjectModal();
 });
 
 document.getElementById('btn-fab-project').addEventListener('click', () => {
@@ -1245,7 +1518,7 @@ document.getElementById('btn-fab-project').addEventListener('click', () => {
     if (isIdeasView) {
         openIdeaModal();
     } else {
-        document.getElementById('modal-project').classList.remove('hidden');
+        openProjectModal();
     }
 });
 
@@ -1259,6 +1532,11 @@ document.getElementById('save-project').addEventListener('click', async () => {
         return;
     }
 
+    if (selectedUsersForNewProject.length === 0) {
+        showCustomAlert("Usuarios Requeridos", "Debes asignar al menos un participante al proyecto.", "warning");
+        return;
+    }
+
     try {
         showLoading();
         const newProj = await Storage.addProject({ 
@@ -1266,6 +1544,12 @@ document.getElementById('save-project').addEventListener('click', async () => {
             description,
             fecha_vencimiento: dueDate || null
         });
+
+        // Asignar los usuarios seleccionados
+        for (const userId of selectedUsersForNewProject) {
+            await Storage.addProjectMember(newProj.id, userId);
+        }
+
         projects.unshift(newProj);
         
         // Si venimos de la vista de Ideas y estamos convirtiendo una
@@ -2099,6 +2383,131 @@ function hideLoading() {
     const app = document.getElementById('app');
     if (app) app.style.display = 'block';
 }
+
+function updateMembersButtonVisibility(role) {
+    const btn = document.getElementById('btn-edit-members');
+    if (!btn) return;
+    const userRole = role || localStorage.getItem('user_role');
+    if (userRole === 'admin' && currentProject) {
+        btn.classList.remove('hidden');
+    } else {
+        btn.classList.add('hidden');
+    }
+}
+
+// GESTIÓN DE MIEMBROS MODAL
+let allUsersCache = [];
+let currentProjectMembers = [];
+
+async function openMembersModal() {
+    if (!currentProject) return;
+    const modal = document.getElementById('modal-project-members');
+    modal.classList.remove('hidden');
+    
+    // Reset buscador
+    const searchInput = document.getElementById('search-users');
+    if (searchInput) searchInput.value = '';
+
+    await loadAllUsersAndMembers();
+}
+
+async function loadAllUsersAndMembers() {
+    const grid = document.getElementById('users-gallery-grid');
+    if (grid) grid.innerHTML = '<div class="loader-container"><div class="spinner-loading"></div><span>Sincronizando equipo...</span></div>';
+    
+    try {
+        // Cargar ambos en paralelo para velocidad
+        const [users, membersData] = await Promise.all([
+            Storage.getAllUsers(),
+            Storage.getProjectMembers(currentProject.id)
+        ]);
+
+        allUsersCache = users;
+        // Mapear solo los IDs para búsqueda fácil
+        currentProjectMembers = membersData.map(m => m.usuario_id);
+        
+        renderMembersGallery();
+        updateMembersCountLabel();
+    } catch (e) {
+        console.error("Error cargando usuarios/miembros:", e);
+        if (grid) grid.innerHTML = '<div style="color:red; text-align:center; padding:2rem;">Error de conexión. Inténtalo de nuevo.</div>';
+    }
+}
+
+function renderMembersGallery(filter = '') {
+    const grid = document.getElementById('users-gallery-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    const term = filter.toLowerCase();
+    // Filtro: Debe coincidir con el término de búsqueda Y ser de rol 'user'
+    const filtered = allUsersCache.filter(u => 
+        (u.nombre.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)) && 
+        u.rol === 'user'
+    );
+
+    if (filtered.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:3rem; opacity:0.5;">No se encontraron usuarios</div>';
+        return;
+    }
+
+    filtered.forEach(user => {
+        const isMember = currentProjectMembers.includes(user.auth_id);
+        const card = document.createElement('div');
+        card.className = `user-member-card ${isMember ? 'is-member' : ''}`;
+        card.dataset.userId = user.auth_id;
+
+        card.innerHTML = `
+            <div class="card-avatar">${user.nombre.substring(0, 2).toUpperCase()}</div>
+            <div class="card-info">
+                <span class="user-name">${user.nombre}</span>
+                <span class="user-email">${user.email}</span>
+            </div>
+            <div class="check-indicator">
+                <i class="fas fa-check"></i>
+            </div>
+        `;
+
+        card.onclick = () => toggleUserMembership(user.auth_id, card);
+        grid.appendChild(card);
+    });
+}
+
+async function toggleUserMembership(authId, cardElement) {
+    const isMember = currentProjectMembers.includes(authId);
+    
+    try {
+        // Feedback visual inmediato (Optimistic UI)
+        if (isMember) {
+            currentProjectMembers = currentProjectMembers.filter(id => id !== authId);
+            cardElement.classList.remove('is-member');
+            await Storage.removeProjectMember(currentProject.id, authId);
+        } else {
+            currentProjectMembers.push(authId);
+            cardElement.classList.add('is-member');
+            await Storage.addProjectMember(currentProject.id, authId);
+        }
+        updateMembersCountLabel();
+    } catch (e) {
+        console.error("Error toggling membership:", e);
+        // Revertir si falla
+        loadAllUsersAndMembers(); 
+        showCustomAlert("Error", "No se pudo actualizar el miembro.", "error");
+    }
+}
+
+function updateMembersCountLabel() {
+    const label = document.getElementById('members-count');
+    if (label) label.textContent = currentProjectMembers.length;
+}
+
+// Búsqueda en tiempo real
+document.getElementById('search-users')?.addEventListener('input', (e) => {
+    renderMembersGallery(e.target.value);
+});
+
+// Iniciar listeners de miembros
+document.getElementById('btn-edit-members')?.addEventListener('click', openMembersModal);
 
 function closeModals() {
     if (window.projectAudio) {

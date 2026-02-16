@@ -11,10 +11,38 @@ const Storage = {
     // LLAMADAS SUPABASE (Proyectos)
     async getProjects() {
         try {
-            const { data, error } = await supabaseClient
-                .from('daviprojects_proyectos')
-                .select('*')
-                .order('created_at', { ascending: false });
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            const { data: profile } = await supabaseClient
+                .from('daviplata_usuarios')
+                .select('rol')
+                .eq('auth_id', user.id)
+                .single();
+
+            // Seleccionamos proyectos con sus miembros y nombres de usuario para la galería
+            let query = supabaseClient.from('daviprojects_proyectos').select(`
+                *,
+                daviprojects_proyecto_miembros!fk_miembros_proyecto (
+                    usuario_id,
+                    daviplata_usuarios!fk_miembros_usuario (
+                        nombre
+                    )
+                )
+            `);
+            
+            // Si no es admin, filtramos por membresía (Nota: Con RLS esto puede ser automático, 
+            // pero lo hacemos explícito para mayor claridad o si RLS no está activo)
+            if (profile && profile.rol !== 'admin') {
+                // Obtenemos IDs de proyectos donde es miembro
+                const { data: memberships } = await supabaseClient
+                    .from('daviprojects_proyecto_miembros')
+                    .select('proyecto_id')
+                    .eq('usuario_id', user.id);
+                
+                const projectIds = memberships.map(m => m.proyecto_id);
+                query = query.in('id', projectIds);
+            }
+
+            const { data, error } = await query.order('created_at', { ascending: false });
             
             if (error) throw error;
             this.saveLocalProjects(data); // Cache local
@@ -27,6 +55,18 @@ const Storage = {
 
     async addProject(project) {
         const { data: { user } } = await supabaseClient.auth.getUser();
+        
+        // Verificar si es admin antes de intentar insertar (Seguridad extra en front)
+        const { data: profile } = await supabaseClient
+            .from('daviplata_usuarios')
+            .select('rol')
+            .eq('auth_id', user.id)
+            .single();
+
+        if (!profile || profile.rol !== 'admin') {
+            throw new Error("Solo los administradores pueden crear proyectos.");
+        }
+
         const newProject = { 
             nombre: project.name,
             descripcion: project.description || null,
@@ -41,7 +81,57 @@ const Storage = {
             .select();
 
         if (error) throw error;
+
+        // Auto-agregar al admin creador como miembro del proyecto
+        await this.addProjectMember(data[0].id, user.id);
+
         return data[0];
+    },
+
+    // GESTIÓN DE MIEMBROS
+    async getProjectMembers(projectId) {
+        const { data, error } = await supabaseClient
+            .from('daviprojects_proyecto_miembros')
+            .select(`
+                id,
+                usuario_id,
+                daviplata_usuarios!fk_miembros_usuario (
+                    id,
+                    nombre,
+                    email,
+                    auth_id
+                )
+            `)
+            .eq('proyecto_id', projectId);
+        if (error) throw error;
+        return data;
+    },
+
+    async getAllUsers() {
+        const { data, error } = await supabaseClient
+            .from('daviplata_usuarios')
+            .select('auth_id, nombre, email, rol')
+            .order('nombre', { ascending: true });
+        if (error) throw error;
+        return data;
+    },
+
+    async addProjectMember(projectId, userId) {
+        const { data, error } = await supabaseClient
+            .from('daviprojects_proyecto_miembros')
+            .insert([{ proyecto_id: projectId, usuario_id: userId }])
+            .select();
+        if (error) throw error;
+        return data[0];
+    },
+
+    async removeProjectMember(projectId, userId) {
+        const { error } = await supabaseClient
+            .from('daviprojects_proyecto_miembros')
+            .delete()
+            .eq('proyecto_id', projectId)
+            .eq('usuario_id', userId);
+        if (error) throw error;
     },
 
     // LLAMADAS SUPABASE (Tareas)
@@ -59,7 +149,7 @@ const Storage = {
             .from('daviprojects_tareas')
             .select('*')
             .eq('id', taskId)
-            .single();
+            .maybeSingle();
         if (error) throw error;
         return data;
     },

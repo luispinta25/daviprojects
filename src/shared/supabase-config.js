@@ -61,7 +61,7 @@ const AuthService = {
             .from('daviplata_usuarios')
             .select('*')
             .eq('auth_id', authId)
-            .single();
+            .maybeSingle();
         if (error) throw error;
         return data;
     }
