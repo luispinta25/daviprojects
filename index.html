@@ -130,16 +130,21 @@
         // Register Service Worker with enhanced update logic
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
+                // updateViaCache: 'none' fuerza al navegador a ignorar el cache HTTP al buscar sw.js
+                navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
                     .then(reg => {
                         console.log('SW OK');
+
+                        // Forzar chequeo de actualización inmediata al abrir
+                        reg.update();
 
                         // Detectar actualizaciones en segundo plano
                         reg.addEventListener('updatefound', () => {
                             const newWorker = reg.installing;
                             newWorker.addEventListener('statechange', () => {
                                 if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    // Forzar actualización inmediata enviando el mensaje
+                                    // Notificar al usuario o forzar
+                                    console.log('Nueva versión instalada. Reiniciando...');
                                     newWorker.postMessage('SKIP_WAITING');
                                 }
                             });
@@ -149,11 +154,10 @@
                             reg.waiting.postMessage('SKIP_WAITING');
                         }
 
-                        // Verificar actualizaciones cada 5 minutos
+                        // Verificar actualizaciones cada 2 minutos para máxima agresividad
                         setInterval(() => {
                             reg.update();
-                            console.log('Checking for updates...');
-                        }, 5 * 60 * 1000);
+                        }, 2 * 60 * 1000);
                     })
                     .catch(err => console.error('SW Error', err));
 
