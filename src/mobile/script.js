@@ -858,7 +858,6 @@ function showAccessDeniedModal(message) {
 function hideMobileSplash() {
     const splash = document.getElementById('loading');
     if (splash) splash.style.display = 'none';
-    document.body?.classList.remove('loading-locked');
     const app = document.getElementById('mobile-app');
     if (app) app.style.display = 'block';
 }

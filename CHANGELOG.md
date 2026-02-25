@@ -1,5 +1,12 @@
 # DaviProjects Changelog
 
+## v6.6.2
+
+### 🛠️ Fixes
+- Rehecha la pantalla de carga móvil para usar overlay fijo con medidas correctas de viewport.
+- Eliminado el bloqueo global del `body` para que el scroll general de la app no se vea afectado.
+- Ajustado el comportamiento del splash para evitar desplazamiento no deseado durante carga.
+
 ## v6.6.1
 
 ### 🛠️ Fixes

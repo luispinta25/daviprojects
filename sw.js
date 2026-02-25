@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daviprojects-v661'; // Forzar actualización de caché (patch)
+const CACHE_NAME = 'daviprojects-v662'; // Forzar actualización de caché (patch)
 const ASSETS_TO_CACHE = [
   'index.html',
   'manifest.json',
