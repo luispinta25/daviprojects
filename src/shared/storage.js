@@ -330,6 +330,11 @@ const Storage = {
             normalizedAttachmentType = 'other';
         }
 
+        // Garantizar que el campo de tipo siempre se envíe en webhook
+        if (!normalizedAttachmentType) {
+            normalizedAttachmentType = 'other';
+        }
+
         // Priorizar el enlace a la tarea si existe
         let projectLink = '';
         if (musicId) {

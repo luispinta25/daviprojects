@@ -52,6 +52,13 @@ let currentStatusFilter = 'TODO';
 const STATUS_FILTER_PRIORITY = ['TODO', 'DOING', 'DONE', 'REVIEW', 'REJECTED'];
 let currentHistoryFolder = null; // Carpeta de historial seleccionada
 let currentElements = []; // Elementos de la tarea actual
+let isSavingMobileTask = false;
+
+function toggleMobileTaskScreenLock(show) {
+    const lock = document.getElementById('mobile-task-creating-lock');
+    if (!lock) return;
+    lock.classList.toggle('hidden', !show);
+}
 
 // --- IDEAS MOBILE ---
 let mobileIdeas = [];
@@ -1453,6 +1460,9 @@ function renderTasks() {
 }
 
 async function handleSaveTask() {
+    if (isSavingMobileTask) return;
+
+    const saveBtn = document.getElementById('save-task-mobile');
     const title = document.getElementById('mobile-task-title').value;
     const desc = document.getElementById('mobile-task-desc').value;
     const priority = document.getElementById('mobile-task-priority').value;
@@ -1461,6 +1471,13 @@ async function handleSaveTask() {
     if (!title) return showMobileToast("Error", "El título es obligatorio", true);
 
     try {
+        isSavingMobileTask = true;
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Creando...';
+        }
+        toggleMobileTaskScreenLock(true);
+
         const newTask = await Storage.addTask({
             title,
             description: desc,
@@ -1487,6 +1504,13 @@ async function handleSaveTask() {
         updateMetrics();
     } catch (e) {
         showMobileToast("Error", "No se pudo guardar", true);
+    } finally {
+        isSavingMobileTask = false;
+        toggleMobileTaskScreenLock(false);
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Guardar Tarea';
+        }
     }
 }
 

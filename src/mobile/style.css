@@ -874,6 +874,42 @@ main {
     cursor: not-allowed;
 }
 
+.mobile-task-screenlock {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.45);
+    backdrop-filter: blur(2px);
+    z-index: 12000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.mobile-task-screenlock-box {
+    min-width: 220px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 1rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55rem;
+    box-shadow: 0 14px 35px rgba(15, 23, 42, 0.18);
+}
+
+.mobile-task-screenlock-box .spinner-loading {
+    margin-bottom: 0;
+}
+
+.mobile-task-screenlock-box p {
+    margin: 0;
+    color: #334155;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
 .sheet-body { 
     flex: 1;
     overflow-y: auto;

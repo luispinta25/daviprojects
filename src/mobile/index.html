@@ -41,11 +41,14 @@
     <style>
         #mobile-app { display: none; }
         .loading-screen {
-            height: 100vh;
+            height: 100dvh;
+            min-height: 100dvh;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+            box-sizing: border-box;
             background: #082359;
             color: white;
             font-family: 'Inter', sans-serif;
@@ -65,7 +68,7 @@
 
         .powered-by-loading {
             position: absolute;
-            bottom: 30px;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
             left: 50%;
             transform: translateX(-50%);
             display: flex;
@@ -81,7 +84,7 @@
             transition: all 0.2s ease;
         }
         .powered-by-loading.compact {
-            bottom: 12px;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
             padding: 8px 14px;
             gap: 5px;
             border-radius: 10px;
@@ -136,8 +139,8 @@
             });
         }
 
-        // Obligatoriedad de versión v6.5.4 (Bypass splash)
-        const APP_VERSION = '6.5.4';
+        // Obligatoriedad de versión v6.6.0 (Bypass splash)
+        const APP_VERSION = '6.6.0';
         const savedVersion = localStorage.getItem('app_version');
         if (savedVersion && savedVersion !== APP_VERSION) {
             console.log('Versión antigua detectada en móvil. Forzando actualización...');
@@ -279,7 +282,7 @@
                 <span>DaviProjects</span>
             </div>
             <div class="header-actions">
-                <span class="app-version-chip-mobile" title="Versión del sistema">v6.5.4</span>
+                <span class="app-version-chip-mobile" title="Versión del sistema">v6.6.0</span>
                 <button id="btn-notifications-mobile" class="btn-icon-head" title="Habilitar Notificaciones"><i class="fas fa-bell"></i></button>
                 <button id="mobile-btn-logout" class="btn-icon-head"><i class="fas fa-power-off"></i></button>
                 <div class="user-avatar-small">LP</div>
@@ -619,6 +622,13 @@
             <div class="sheet-footer">
                 <button class="btn-confirm-full" id="save-task-mobile">Guardar Tarea</button>
             </div>
+        </div>
+    </div>
+
+    <div id="mobile-task-creating-lock" class="mobile-task-screenlock hidden">
+        <div class="mobile-task-screenlock-box">
+            <div class="spinner-loading"></div>
+            <p>Creando tarea...</p>
         </div>
     </div>
 
