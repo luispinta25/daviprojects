@@ -99,8 +99,8 @@
             NotificationHelper.registerServiceWorker();
         }
 
-        // Obligatoriedad de versión v6.6.0 (Bypass splash)
-        const APP_VERSION = '6.6.0';
+        // Obligatoriedad de versión v6.6.1 (Bypass splash)
+        const APP_VERSION = '6.6.1';
         const savedVersion = localStorage.getItem('app_version');
         if (savedVersion && savedVersion !== APP_VERSION) {
             console.log('Versión antigua detectada en PC. Forzando actualización...');
@@ -268,7 +268,7 @@
                         </div>
                     </div>
                     <div class="header-right">
-                        <span class="app-version-chip" title="Versión del sistema">v6.6.0</span>
+                        <span class="app-version-chip" title="Versión del sistema">v6.6.1</span>
                         <div class="user-profile">
                             <div class="user-info-text">
                                 <span id="user-display-name">Usuario</span>

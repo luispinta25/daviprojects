@@ -1,5 +1,11 @@
 # DaviProjects Changelog
 
+## v6.6.1
+
+### 🛠️ Fixes
+- Corregido el scroll no deseado en la pantalla de carga móvil para que no se pueda desplazar durante el splash.
+- Ajustado el comportamiento del loader para respetar el alto visible sin revelar contenido fuera de la vista inicial.
+
 ## v6.6.0
 
 ### ✨ Mejoras
