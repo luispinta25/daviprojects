@@ -247,8 +247,10 @@ async function handleSaveIdeaMobile() {
     try {
         let audioUrl = null;
         if (recordedAudioBlob) {
-            const fileName = `idea_audio_${Date.now()}.mp3`;
-            audioUrl = await Storage.uploadFile(recordedAudioBlob, `ideas/${fileName}`);
+            const rawAudioFile = new File([recordedAudioBlob], `idea_audio_${Date.now()}.webm`, { type: recordedAudioBlob.type || 'audio/webm' });
+            const mp3AudioFile = await ChatUtils.convertAudioToMp3(rawAudioFile);
+            const fileName = ChatUtils.sanitizeFileName(mp3AudioFile.name || `idea_audio_${Date.now()}.mp3`, 'idea_audio');
+            audioUrl = await Storage.uploadFile(mp3AudioFile, `ideas/${fileName}`);
         }
 
         await Storage.addIdea({
@@ -920,7 +922,7 @@ async function loadData(silentMode = false) {
 }
 
 // --- LOGGING & HISTORY ---
-async function logMobileAction(accion, detalle, tareaId = null) {
+async function logMobileAction(accion, detalle, tareaId = null, attachmentType = null, attachmentUrl = null) {
     const projId = currentProjectId || (tareaId ? allTasks.find(t => t.id === tareaId)?.proyecto_id : null);
     if (!projId) return;
     
@@ -929,7 +931,9 @@ async function logMobileAction(accion, detalle, tareaId = null) {
             accion,
             detalle,
             proyecto_id: projId,
-            tarea_id: tareaId
+            tarea_id: tareaId,
+            attachmentType,
+            attachmentUrl
         });
     } catch (err) {
         console.error("Error logging action mobile:", err);
@@ -1037,6 +1041,12 @@ function switchView(viewId) {
 // --- PROYECTOS ---
 function renderProjectGalleries(filteredList = null) {
     const listToRender = filteredList || projects;
+
+    const truncateProjectName = (name, maxLength = 52) => {
+        const safeName = (name || '').trim();
+        if (safeName.length <= maxLength) return safeName;
+        return `${safeName.slice(0, maxLength).trimEnd()}...`;
+    };
     
     const renderCard = (p) => {
         // Solo TODO, DOING, DONE (Calculamos progreso)
@@ -1063,23 +1073,25 @@ function renderProjectGalleries(filteredList = null) {
                     <i class="fas fa-folder"></i>
                 </div>
                 <div class="card-info">
-                    <h4 style="display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;">
-                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.nombre}</span>
-                        <div style="display:flex; margin-left: auto;">
+                    <div class="card-head-row">
+                        <h4>
+                            <span class="card-project-title" title="${p.nombre}">${truncateProjectName(p.nombre)}</span>
+                        </h4>
+                        <div class="card-meta-end">
+                            ${prog}%
+                        </div>
+                    </div>
+                    <div class="card-members-strip">
                             ${memberAvatarsHtml}
                             ${projectMemberships.length > 3 ? `
                                 <div class="card-mini-avatar" style="background: #94a3b8; width: 18px; height: 18px; font-size: 0.5rem; border: 1.5px solid #fff; margin-left: -5px; z-index: 0;">
                                     +${projectMemberships.length - 3}
                                 </div>
                             ` : ''}
-                        </div>
-                    </h4>
+                    </div>
                     <div class="prog-bar-mini">
                         <div class="prog-fill" style="width: ${prog}%"></div>
                     </div>
-                </div>
-                <div class="card-meta-end" style="font-size: 0.75rem; font-weight: 700; color: var(--primary);">
-                    ${prog}%
                 </div>
             </div>
         `;
@@ -1899,6 +1911,23 @@ async function handleAddElement(type) {
                 } catch (e) {
                     console.error("Error comprimiendo imagen:", e);
                 }
+            } else if (currentAttachment.type === 'application/pdf') {
+                try {
+                    fileToUpload = await ChatUtils.optimizePdf(currentAttachment);
+                    finalName = fileToUpload.name;
+                    attachmentToProcess = fileToUpload;
+                } catch (e) {
+                    console.error("Error optimizando PDF:", e);
+                }
+            } else if (currentAttachment.type.startsWith('audio/')) {
+                try {
+                    fileToUpload = await ChatUtils.convertAudioToMp3(currentAttachment);
+                    finalName = fileToUpload.name;
+                    attachmentToProcess = fileToUpload;
+                } catch (e) {
+                    console.error("Error convirtiendo audio a mp3:", e);
+                    throw new Error("No se pudo convertir el audio a MP3");
+                }
             }
 
             const path = `multimedia/${Date.now()}_${finalName}`;
@@ -1927,7 +1956,15 @@ async function handleAddElement(type) {
             logActionType = 'RESPONDER';
         }
         
-        logMobileAction(logActionType, logDetail, currentTaskId); // No bloquear la UI esperando el log
+        const normalizedAttachmentType = attachmentToProcess
+            ? (attachmentToProcess.type.startsWith('image/')
+                ? 'image'
+                : (attachmentToProcess.type === 'application/pdf'
+                    ? 'pdf'
+                    : (attachmentToProcess.type.startsWith('audio/') ? 'audio' : attachmentToProcess.type)))
+            : null;
+
+        logMobileAction(logActionType, logDetail, currentTaskId, normalizedAttachmentType, archivoUrl); // No bloquear la UI esperando el log
 
         input.value = '';
         if (type === 'COMMENT') {
@@ -2968,8 +3005,12 @@ if (document.getElementById('btn-save-music-mobile')) {
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Subiendo material...';
 
         try {
-            const file = fileInput.files[0];
-            const fileName = `${Date.now()}_${file.name}`;
+            let file = fileInput.files[0];
+            if (file.type.startsWith('audio/')) {
+                file = await ChatUtils.convertAudioToMp3(file);
+            }
+            const safeName = ChatUtils.sanitizeFileName(file.name || `audio_${Date.now()}.mp3`, 'audio');
+            const fileName = `${Date.now()}_${safeName}`;
             const path = `daviprojects/musicas/${fileName}`;
             
             const publicUrl = await Storage.uploadFile(file, path);

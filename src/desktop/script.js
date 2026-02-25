@@ -331,10 +331,12 @@ function initIdeasListeners() {
         try {
             let audio_url = null;
             if (currentIdeaAudioBlob) {
-                const fileName = `idea_${Date.now()}.webm`;
+                const rawAudioFile = new File([currentIdeaAudioBlob], `idea_${Date.now()}.webm`, { type: currentIdeaAudioBlob.type || 'audio/webm' });
+                const mp3AudioFile = await ChatUtils.convertAudioToMp3(rawAudioFile);
+                const fileName = ChatUtils.sanitizeFileName(mp3AudioFile.name || `idea_${Date.now()}.mp3`, 'idea_audio');
                 // Usamos Storage.uploadFile para ser consistentes con el bucket correcto (luispintapersonal)
                 try {
-                    audio_url = await Storage.uploadFile(currentIdeaAudioBlob, `ideas/${fileName}`);
+                    audio_url = await Storage.uploadFile(mp3AudioFile, `ideas/${fileName}`);
                 } catch (uploadError) {
                     console.error("Error subiendo audio:", uploadError);
                     throw new Error("No se pudo subir el audio. Verifica el bucket de almacenamiento.");
@@ -1030,16 +1032,45 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
         console.error("Error fetching tasks for gallery:", e);
     }
 
+    const trackedStatuses = ['TODO', 'DOING', 'DONE', 'REVIEW', 'REJECTED'];
+    const projectStatsById = new Map();
+
+    projects.forEach(project => {
+        const projectTasks = allTasks.filter(t => t.proyecto_id === project.id && trackedStatuses.includes(t.estado || 'TODO'));
+        const totalTasks = projectTasks.length;
+        const completedTasks = projectTasks.filter(t => t.estado === 'DONE' || t.completada).length;
+        const pendingTasks = projectTasks.filter(t => (t.estado || 'TODO') !== 'DONE' && !t.completada).length;
+        const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+        const dueDate = project.fecha_vencimiento ? new Date(project.fecha_vencimiento) : null;
+        const hasValidDueDate = dueDate instanceof Date && !Number.isNaN(dueDate.getTime());
+
+        projectStatsById.set(project.id, {
+            totalTasks,
+            completedTasks,
+            pendingTasks,
+            progress,
+            dueDate,
+            hasValidDueDate
+        });
+    });
+
     let projectsToShow = [...projects];
 
     if (sortByDueDate) {
-        // Ordenar por fecha de vencimiento (los que vencen antes primero)
-        // Los que no tienen fecha van al final
+        // Dashboard: mostrar SOLO proyectos con vencimiento y tareas pendientes
+        // Excluir totalmente proyectos 100% completados
+        projectsToShow = projectsToShow.filter(project => {
+            const stats = projectStatsById.get(project.id);
+            if (!stats) return false;
+            return stats.hasValidDueDate && stats.pendingTasks > 0 && stats.progress < 100;
+        });
+
+        // Ordenar por vencimiento más próximo
         projectsToShow.sort((a, b) => {
-            if (!a.fecha_vencimiento && !b.fecha_vencimiento) return 0;
-            if (!a.fecha_vencimiento) return 1;
-            if (!b.fecha_vencimiento) return -1;
-            return new Date(a.fecha_vencimiento) - new Date(b.fecha_vencimiento);
+            const dueA = projectStatsById.get(a.id)?.dueDate;
+            const dueB = projectStatsById.get(b.id)?.dueDate;
+            return dueA - dueB;
         });
     }
 
@@ -1047,12 +1078,18 @@ async function renderProjectGallery(containerId = 'project-gallery', limit = nul
         projectsToShow = projectsToShow.slice(0, limit);
     }
 
+    if (projectsToShow.length === 0) {
+        gallery.innerHTML = sortByDueDate
+            ? `<div class="empty-state"><h3>No hay proyectos próximos con tareas pendientes.</h3><p style="color: var(--text-muted); margin-top: 0.5rem;">Los proyectos finalizados o sin vencimiento no se muestran en este bloque.</p></div>`
+            : `<div class="empty-state"><h3>No hay proyectos para mostrar.</h3></div>`;
+        return;
+    }
+
     projectsToShow.forEach(project => {
-        // Calcular progreso (Solo TODO, DOING, DONE)
-        const projectTasks = allTasks.filter(t => t.proyecto_id === project.id && ['TODO', 'DOING', 'DONE'].includes(t.estado || 'TODO'));
-        const totalTasks = projectTasks.length;
-        const completedTasks = projectTasks.filter(t => t.estado === 'DONE' || t.completada).length;
-        const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+        const stats = projectStatsById.get(project.id) || { totalTasks: 0, completedTasks: 0, progress: 0 };
+        const totalTasks = stats.totalTasks;
+        const completedTasks = stats.completedTasks;
+        const progress = stats.progress;
 
         const card = document.createElement('div');
         card.className = 'project-card';
@@ -2034,14 +2071,16 @@ function showNotification(title, message, isError = false) {
 }
 
 // --- LOGGING & HISTORY ---
-async function logAction(accion, detalle, tareaId = null) {
+async function logAction(accion, detalle, tareaId = null, attachmentType = null, attachmentUrl = null) {
     if (!currentProject) return;
     try {
         await Storage.addHistory({
             accion,
             detalle,
             proyecto_id: currentProject.id,
-            tarea_id: tareaId
+            tarea_id: tareaId,
+            attachmentType,
+            attachmentUrl
         });
     } catch (err) {
         console.error("Error logging action:", err);
@@ -2766,8 +2805,12 @@ function handleSelectedFile(file) {
 async function processFile(file) {
     if (file.type.startsWith('image/')) {
         return await ChatUtils.compressToWebP(file);
+    } else if (file.type.startsWith('audio/')) {
+        return await ChatUtils.convertAudioToMp3(file);
+    } else if (file.type === 'application/pdf') {
+        return await ChatUtils.optimizePdf(file);
     }
-    return file; // PDF y Audio se suben directo
+    return file;
 }
 
 // Función para abrir el editor desde el avance de archivo
@@ -3436,7 +3479,7 @@ async function addElementFromUI(type) {
             logActionType = 'RESPONDER';
         }
         
-        logAction(logActionType, logDetail, editingTaskId);
+        logAction(logActionType, logDetail, editingTaskId, archivo_tipo, archivo_url);
         cancelReply();
     } catch (error) {
         console.error("Error al añadir elemento:", error);
@@ -4316,8 +4359,12 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 let publicUrl = null;
                 if (fileInput && fileInput.files && fileInput.files[0]) {
-                    const file = fileInput.files[0];
-                    const fileName = `${Date.now()}_${file.name}`;
+                    let file = fileInput.files[0];
+                    if (file.type.startsWith('audio/')) {
+                        file = await ChatUtils.convertAudioToMp3(file);
+                    }
+                    const safeName = ChatUtils.sanitizeFileName(file.name || `audio_${Date.now()}.mp3`, 'audio');
+                    const fileName = `${Date.now()}_${safeName}`;
                     const path = `daviprojects/musicas/${fileName}`;
                     publicUrl = await Storage.uploadFile(file, path);
                 }

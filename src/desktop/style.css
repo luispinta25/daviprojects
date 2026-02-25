@@ -232,54 +232,6 @@ body {
 
 
 
-.header-left {
-
-    display: flex;
-
-    align-items: center;
-
-}
-
-
-
-.btn-view-all:hover {
-
-    background: var(--primary) !important;
-
-    color: white !important;
-
-    transform: translateY(-2px);
-
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
-
-}
-
-
-
-.sidebar-nav {
-
-    list-style: none;
-
-    padding: 0;
-
-    margin: 0.5rem 0;
-
-}
-
-
-
-.sidebar-nav li {
-
-    padding: 0.75rem 1rem;
-
-    cursor: pointer;
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 0.75rem;
-
     color: #cbd5e1;
 
     transition: all 0.2s;
@@ -793,6 +745,28 @@ input[type="range"].priority-slider:active::-webkit-slider-thumb {
     align-items: center;
 
     gap: 1.25rem;
+
+}
+
+.app-version-chip {
+
+    font-size: 0.72rem;
+
+    font-weight: 700;
+
+    color: #94a3b8;
+
+    letter-spacing: 0.04em;
+
+    background: #f8fafc;
+
+    border: 1px solid #e2e8f0;
+
+    border-radius: 999px;
+
+    padding: 0.22rem 0.55rem;
+
+    user-select: none;
 
 }
 
@@ -3785,7 +3759,11 @@ input[type="range"].priority-slider:active::-webkit-slider-thumb {
 
     line-height: 1.5;
 
+    white-space: pre-wrap;
+
     word-break: break-word;
+
+    overflow-wrap: anywhere;
 
 }
 
@@ -4411,8 +4389,6 @@ input[type="range"].priority-slider:active::-webkit-slider-thumb {
     font-size: 0.95rem;
 
 }
-
-
 
 .metrics-grid {
 

@@ -17,6 +17,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="../shared/supabase-config.js"></script>
     <script src="../shared/notification-helper.js"></script>
     <script>
@@ -76,7 +78,17 @@
             opacity: 0.85;
             border: 1px solid rgba(255, 255, 255, 0.1);
             white-space: nowrap;
+            transition: all 0.2s ease;
         }
+        .powered-by-loading.compact {
+            bottom: 12px;
+            padding: 8px 14px;
+            gap: 5px;
+            border-radius: 10px;
+        }
+        .powered-by-loading.compact img { height: 20px; }
+        .powered-by-loading.compact span { font-size: 0.58rem; letter-spacing: 1.5px; }
+        .powered-by-loading.hidden-by-space { display: none !important; }
         .powered-by-loading span {
             font-size: 0.65rem;
             font-weight: 700;
@@ -96,11 +108,40 @@
             NotificationHelper.registerServiceWorker();
         }
 
-        // Obligatoriedad de versión v41 (Bypass splash)
-        const APP_VERSION = '41.0.0';
+        function adjustLoadingPoweredByVisibility() {
+            const loader = document.getElementById('loading');
+            const brand = loader?.querySelector('.powered-by-loading');
+            if (!loader || !brand) return;
+
+            brand.classList.remove('compact', 'hidden-by-space');
+
+            requestAnimationFrame(() => {
+                const spinner = loader.querySelector('.spinner-loading');
+                const loadingLabel = spinner?.nextElementSibling;
+
+                const viewportHeight = window.innerHeight || loader.clientHeight;
+                const mainBlockHeight = (spinner?.offsetHeight || 25) + (loadingLabel?.offsetHeight || 18) + 26;
+                const regularBrandHeight = brand.offsetHeight || 56;
+
+                const requiredRegular = mainBlockHeight + regularBrandHeight + 78;
+                if (viewportHeight < requiredRegular) {
+                    brand.classList.add('compact');
+                }
+
+                const compactBrandHeight = brand.offsetHeight || 46;
+                const requiredCompact = mainBlockHeight + compactBrandHeight + 46;
+                if (viewportHeight < requiredCompact) {
+                    brand.classList.add('hidden-by-space');
+                }
+            });
+        }
+
+        // Obligatoriedad de versión v6.5.3 (Bypass splash)
+        const APP_VERSION = '6.5.3';
         const savedVersion = localStorage.getItem('app_version');
         if (savedVersion && savedVersion !== APP_VERSION) {
             console.log('Versión antigua detectada en móvil. Forzando actualización...');
+            localStorage.setItem('changelog_pending_version', APP_VERSION);
             if ('caches' in window) {
                 caches.keys().then(names => {
                     for (let name of names) caches.delete(name);
@@ -111,6 +152,15 @@
         } else if (!savedVersion) {
             localStorage.setItem('app_version', APP_VERSION);
         }
+
+        if (window.NotificationHelper && typeof NotificationHelper.showVersionChangelogOnce === 'function') {
+            const changelogUrl = window.location.pathname.includes('/produccion/') ? '/produccion/CHANGELOG.md' : '/CHANGELOG.md';
+            NotificationHelper.showVersionChangelogOnce({ version: APP_VERSION, changelogUrl });
+        }
+
+        window.addEventListener('load', adjustLoadingPoweredByVisibility);
+        window.addEventListener('resize', adjustLoadingPoweredByVisibility);
+        window.visualViewport?.addEventListener('resize', adjustLoadingPoweredByVisibility);
     </script>
     <style>
         /* Modal de Alerta Móvil */
@@ -229,6 +279,7 @@
                 <span>DaviProjects</span>
             </div>
             <div class="header-actions">
+                <span class="app-version-chip-mobile" title="Versión del sistema">v6.5.3</span>
                 <button id="btn-notifications-mobile" class="btn-icon-head" title="Habilitar Notificaciones"><i class="fas fa-bell"></i></button>
                 <button id="mobile-btn-logout" class="btn-icon-head"><i class="fas fa-power-off"></i></button>
                 <div class="user-avatar-small">LP</div>

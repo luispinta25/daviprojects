@@ -1,5 +1,24 @@
 // Lógica persistente compartida con Sincronización Supabase
 const Storage = {
+    _sanitizeStoragePath(path) {
+        const cleanSegment = (segment) => {
+            if (!segment) return '';
+            const normalized = segment
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-zA-Z0-9._-]+/g, '-')
+                .replace(/-+/g, '-')
+                .replace(/^-|-$/g, '');
+            return normalized || 'file';
+        };
+
+        return String(path || '')
+            .split('/')
+            .filter(Boolean)
+            .map(cleanSegment)
+            .join('/');
+    },
+
     // LLAMADAS LOCALES (Fallback)
     getLocalProjects() {
         return JSON.parse(localStorage.getItem('projects')) || [];
@@ -245,7 +264,16 @@ const Storage = {
         }
 
         // Notificación Webhook
-        this._notifyWebhook(nombre, log.accion, log.detalle, log.proyecto_id, log.tarea_id);
+        this._notifyWebhook(
+            nombre,
+            log.accion,
+            log.detalle,
+            log.proyecto_id,
+            log.tarea_id,
+            null,
+            log.attachmentType || null,
+            log.attachmentUrl || null
+        );
 
         const { error: insertError } = await supabaseClient
             .from('daviprojects_historial')
@@ -260,7 +288,7 @@ const Storage = {
         if (insertError) console.error("Error al guardar historial:", insertError);
     },
 
-    async _notifyWebhook(nombre, accion, detalle, proyectoId, tareaId = null, musicId = null) {
+    async _notifyWebhook(nombre, accion, detalle, proyectoId, tareaId = null, musicId = null, attachmentType = null, attachmentUrl = null) {
         const url = 'https://lpn8nwebhook.luispintasolutions.com/webhook/daviprojects1';
         
         // Determinar el módulo/tipo para deep linking
@@ -273,6 +301,33 @@ const Storage = {
             targetType = 'CHECKLIST';
         } else if (detLower.includes('lista') || detLower.includes('pasos')) {
             targetType = 'NUMBERED';
+        }
+
+        const isCommentEvent = targetType === 'COMMENT';
+
+        let normalizedAttachmentType = attachmentType || null;
+
+        // Normalizar MIME types comunes a categorías simplificadas
+        if (normalizedAttachmentType && normalizedAttachmentType.includes('/')) {
+            if (normalizedAttachmentType.startsWith('image/')) normalizedAttachmentType = 'image';
+            else if (normalizedAttachmentType === 'application/pdf') normalizedAttachmentType = 'pdf';
+            else if (normalizedAttachmentType.startsWith('audio/')) normalizedAttachmentType = 'audio';
+            else normalizedAttachmentType = 'other';
+        }
+
+        // Si es comentario sin adjunto, marcar como texto
+        if (isCommentEvent && !normalizedAttachmentType && !attachmentUrl) {
+            normalizedAttachmentType = 'text';
+        }
+
+        // Si hay URL de adjunto sin tipo reconocido, enviar como 'other'
+        if (attachmentUrl && !normalizedAttachmentType) {
+            normalizedAttachmentType = 'other';
+        }
+
+        // Blindaje final para tipos no contemplados
+        if (normalizedAttachmentType && !['text', 'image', 'pdf', 'audio', 'other'].includes(normalizedAttachmentType)) {
+            normalizedAttachmentType = 'other';
         }
 
         // Priorizar el enlace a la tarea si existe
@@ -336,7 +391,13 @@ const Storage = {
                     detail: detalle,
                     timestamp: timestamp,
                     projectId: proyectoId,
-                    link: projectLink
+                    link: projectLink,
+                    attachmentType: normalizedAttachmentType,
+                    attachmentUrl: attachmentUrl,
+                    attachment: {
+                        type: normalizedAttachmentType,
+                        url: attachmentUrl
+                    }
                 })
             });
         } catch (e) {
@@ -414,9 +475,10 @@ const Storage = {
     // --- STORAGE (Subida de archivos) ---
     async uploadFile(file, path) {
         // 'path' debe ser algo como 'daviprojects/nombre-archivo.ext'
+        const safePath = this._sanitizeStoragePath(path);
         const { data, error } = await supabaseClient.storage
             .from('luispintapersonal')
-            .upload(path, file, {
+            .upload(safePath, file, {
                 cacheControl: '3600',
                 upsert: true
             });
@@ -426,7 +488,7 @@ const Storage = {
         // Obtener URL pública
         const { data: { publicUrl } } = supabaseClient.storage
             .from('luispintapersonal')
-            .getPublicUrl(path);
+            .getPublicUrl(safePath);
         
         return publicUrl;
     },
@@ -635,7 +697,9 @@ const Storage = {
             `Ha subido un nuevo tema: *${music.nombre}*`, 
             music.proyecto_id,
             null,
-            data[0].id
+            data[0].id,
+            'audio',
+            music.url_archivo || null
         );
 
         return data[0];

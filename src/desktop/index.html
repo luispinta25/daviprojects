@@ -19,6 +19,8 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="../shared/supabase-config.js"></script>
     <script src="../shared/notification-helper.js"></script>
     <script>
@@ -97,11 +99,12 @@
             NotificationHelper.registerServiceWorker();
         }
 
-        // Obligatoriedad de versión v41 (Bypass splash)
-        const APP_VERSION = '41.0.0';
+        // Obligatoriedad de versión v6.5.3 (Bypass splash)
+        const APP_VERSION = '6.5.3';
         const savedVersion = localStorage.getItem('app_version');
         if (savedVersion && savedVersion !== APP_VERSION) {
             console.log('Versión antigua detectada en PC. Forzando actualización...');
+            localStorage.setItem('changelog_pending_version', APP_VERSION);
             if ('caches' in window) {
                 caches.keys().then(names => {
                     for (let name of names) caches.delete(name);
@@ -111,6 +114,11 @@
             window.location.reload();
         } else if (!savedVersion) {
             localStorage.setItem('app_version', APP_VERSION);
+        }
+
+        if (window.NotificationHelper && typeof NotificationHelper.showVersionChangelogOnce === 'function') {
+            const changelogUrl = window.location.pathname.includes('/produccion/') ? '/produccion/CHANGELOG.md' : '/CHANGELOG.md';
+            NotificationHelper.showVersionChangelogOnce({ version: APP_VERSION, changelogUrl });
         }
 
         function showCustomAlert(title, message, type = 'warning') {
@@ -260,6 +268,7 @@
                         </div>
                     </div>
                     <div class="header-right">
+                        <span class="app-version-chip" title="Versión del sistema">v6.5.3</span>
                         <div class="user-profile">
                             <div class="user-info-text">
                                 <span id="user-display-name">Usuario</span>

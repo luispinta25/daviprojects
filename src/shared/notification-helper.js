@@ -4,6 +4,8 @@
 
 const NotificationHelper = {
     isReloadingForUpdate: false,
+    CHANGELOG_PENDING_KEY: 'changelog_pending_version',
+    CHANGELOG_SHOWN_KEY: 'changelog_shown_version',
     /**
      * Solicita permisos de notificación usando un modal elegante si el estado es 'default'.
      */
@@ -132,15 +134,15 @@ const NotificationHelper = {
                         const newWorker = reg.installing;
                         newWorker.addEventListener('statechange', () => {
                             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                console.log('Nueva versión detectada y lista para actualizar.');
-                                NotificationHelper.showUpdateModal(reg);
+                                console.log('Nueva versión detectada. Actualizando automáticamente...');
+                                newWorker.postMessage('SKIP_WAITING');
                             }
                         });
                     });
 
                     // Si ya hay un worker esperando al cargar la página
                     if (reg.waiting) {
-                        NotificationHelper.showUpdateModal(reg);
+                        reg.waiting.postMessage('SKIP_WAITING');
                     }
 
                     // Chequeo cíclico cada 2 minutos
@@ -242,6 +244,177 @@ const NotificationHelper = {
 
             navigator.serviceWorker.getRegistration().then(applyUpdate);
         };
+    },
+
+    _extractVersionSection(markdown, version) {
+        if (!markdown) return '';
+
+        const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const lines = markdown.split(/\r?\n/);
+        const headingRegex = new RegExp(`^##\\s*(?:\\[)?v?${escaped}(?:\\])?\\b`, 'i');
+
+        let startIndex = -1;
+        for (let i = 0; i < lines.length; i++) {
+            if (headingRegex.test(lines[i].trim())) {
+                startIndex = i;
+                break;
+            }
+        }
+
+        if (startIndex === -1) return markdown;
+
+        let endIndex = lines.length;
+        for (let i = startIndex + 1; i < lines.length; i++) {
+            if (/^##\s+/.test(lines[i].trim())) {
+                endIndex = i;
+                break;
+            }
+        }
+
+        return lines.slice(startIndex, endIndex).join('\n').trim();
+    },
+
+    _markdownToHtml(markdown) {
+        const escapeHtml = (value) => String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+        const formatInline = (value) => {
+            const escaped = escapeHtml(value);
+            return escaped
+                .replace(/`([^`]+)`/g, '<code style="background:#f1f5f9; padding:0.1rem 0.3rem; border-radius:5px; color:#334155;">$1</code>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        };
+
+        const lines = (markdown || '').split(/\r?\n/);
+        let html = '';
+        let listType = '';
+
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line) {
+                if (listType) {
+                    html += listType === 'ul' ? '</ul>' : '</ol>';
+                    listType = '';
+                }
+                continue;
+            }
+
+            if (/^#{1,4}\s+/.test(line)) {
+                if (listType) {
+                    html += listType === 'ul' ? '</ul>' : '</ol>';
+                    listType = '';
+                }
+                const level = (line.match(/^#+/)?.[0].length) || 2;
+                const title = line.replace(/^#{1,4}\s+/, '');
+                const fontSize = level <= 2 ? '1rem' : '0.95rem';
+                html += `<h3 style="margin: 0 0 0.7rem; color:#0f172a; font-size:${fontSize};">${formatInline(title)}</h3>`;
+                continue;
+            }
+
+            const isUnordered = /^[-*]\s+/.test(line);
+            const isOrdered = /^\d+\.\s+/.test(line);
+
+            if (isUnordered || isOrdered) {
+                const nextType = isOrdered ? 'ol' : 'ul';
+                const itemText = line.replace(isOrdered ? /^\d+\.\s+/ : /^[-*]\s+/, '');
+
+                if (listType && listType !== nextType) {
+                    html += listType === 'ul' ? '</ul>' : '</ol>';
+                    listType = '';
+                }
+
+                if (!listType) {
+                    html += nextType === 'ol'
+                        ? '<ol style="margin:0; padding-left:1.1rem; display:flex; flex-direction:column; gap:0.45rem;">'
+                        : '<ul style="margin:0; padding-left:1.1rem; display:flex; flex-direction:column; gap:0.45rem;">';
+                    listType = nextType;
+                }
+                html += `<li style="color:#334155; font-size:0.9rem; line-height:1.4;">${formatInline(itemText)}</li>`;
+                continue;
+            }
+
+            if (listType) {
+                html += listType === 'ul' ? '</ul>' : '</ol>';
+                listType = '';
+            }
+            html += `<p style="margin:0 0 0.55rem; color:#475569; font-size:0.9rem; line-height:1.45;">${formatInline(line)}</p>`;
+        }
+
+        if (listType) html += listType === 'ul' ? '</ul>' : '</ol>';
+        return html;
+    },
+
+    async showVersionChangelogOnce({ version, changelogUrl }) {
+        if (!version) return;
+
+        const pendingVersion = localStorage.getItem(this.CHANGELOG_PENDING_KEY);
+        const shownVersion = localStorage.getItem(this.CHANGELOG_SHOWN_KEY);
+
+        if (pendingVersion !== version || shownVersion === version) return;
+        if (document.getElementById('version-changelog-modal')) return;
+
+        let markdown = '';
+        try {
+            const response = await fetch(changelogUrl, { cache: 'no-store' });
+            if (response.ok) {
+                const rawText = await response.text();
+                markdown = this._extractVersionSection(rawText, version) || rawText;
+            }
+        } catch (err) {
+            console.warn('No se pudo cargar CHANGELOG.md:', err);
+        }
+
+        const contentHtml = markdown
+            ? this._markdownToHtml(markdown)
+            : `<h3 style="margin:0 0 0.7rem; color:#0f172a; font-size:1rem;">v${version} • Patch</h3><p style="margin:0; color:#475569; font-size:0.9rem; line-height:1.45;">Esta versión mejora el envío de archivos y la estabilidad general de la app.</p>`;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'version-changelog-modal';
+        overlay.style.cssText = `
+            position: fixed;
+            inset: 0;
+            background: rgba(2,6,23,0.55);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            z-index: 10030;
+        `;
+
+        overlay.innerHTML = `
+            <div style="width: min(620px, 96vw); max-height: 82vh; overflow: auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 18px 45px rgba(15,23,42,0.22); padding: 1rem 1rem 0.95rem;">
+                <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.8rem;">
+                    <div style="width:34px; height:34px; border-radius:10px; background:#eef2ff; color:#3730a3; display:flex; align-items:center; justify-content:center;"><i class="fas fa-rocket"></i></div>
+                    <div style="display:flex; flex-direction:column;">
+                        <strong style="font-size:1rem; color:#0f172a;">Actualización aplicada</strong>
+                        <span style="font-size:0.78rem; color:#64748b;">Se muestra una sola vez por versión</span>
+                    </div>
+                </div>
+                <div style="padding: 0.15rem 0.1rem 0.4rem;">${contentHtml}</div>
+                <div style="display:flex; justify-content:flex-end; margin-top:0.55rem;">
+                    <button id="btn-close-version-changelog" style="border:none; background:#05A64B; color:#fff; border-radius:10px; padding:0.55rem 0.95rem; font-weight:700; cursor:pointer;">Entendido</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const closeModal = () => {
+            overlay.remove();
+            localStorage.setItem(this.CHANGELOG_SHOWN_KEY, version);
+            localStorage.removeItem(this.CHANGELOG_PENDING_KEY);
+        };
+
+        overlay.querySelector('#btn-close-version-changelog')?.addEventListener('click', closeModal);
+        overlay.addEventListener('click', (event) => {
+            if (event.target === overlay) closeModal();
+        });
     }
 };
 

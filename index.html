@@ -171,10 +171,11 @@
         }
 
         // Obligatoriedad de versión (Clear cache if version mismatch)
-        const APP_VERSION = '41.0.0';
+        const APP_VERSION = '6.5.3';
         const savedVersion = localStorage.getItem('app_version');
         if (savedVersion && savedVersion !== APP_VERSION) {
             console.log('Nueva versión detectada. Limpiando caché...');
+            localStorage.setItem('changelog_pending_version', APP_VERSION);
             if ('caches' in window) {
                 caches.keys().then(names => {
                     for (let name of names) caches.delete(name);
